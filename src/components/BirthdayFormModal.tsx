@@ -11,23 +11,27 @@ import {
   Platform,
   Switch,
 } from 'react-native';
-import { BirthdayProfile, ReminderMode } from '../types';
+import type { BirthdayProfile, GlobalReminderSettings, ReminderMode } from '../types';
+import { ReminderTimeInput } from './ReminderTimeInput';
+import { formatReminderTime, getEffectiveReminderSettings, getReminderRules, parseReminderTime } from '../utils/reminderRules';
 import { THEME } from '../constants/theme';
 import {
   MONTH_NAMES_FR,
   getNextBirthdayDate,
   calculateNextAge,
+  getNextReminderOccurrence,
 } from '../utils/dateUtils';
 import {
   CreateBirthdayInput,
   validateBirthdayInput,
   ValidationError,
-} from '../database/birthdayRepository';
-import { getGlobalSettings } from '../database/settingsRepository';
+} from '../utils/birthdayValidation';
 
 interface BirthdayFormModalProps {
   visible: boolean;
   editingBirthday: BirthdayProfile | null;
+  defaults: GlobalReminderSettings;
+  saving: boolean;
   onClose: () => void;
   onSave: (input: CreateBirthdayInput) => void;
 }
@@ -35,6 +39,8 @@ interface BirthdayFormModalProps {
 export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
   visible,
   editingBirthday,
+  defaults,
+  saving,
   onClose,
   onSave,
 }) => {
@@ -47,9 +53,9 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
 
   // Réglages personnalisés
   const [customDayBeforeEnabled, setCustomDayBeforeEnabled] = useState(true);
-  const [customDayBeforeHour, setCustomDayBeforeHour] = useState('19');
+  const [customDayBeforeHour, setCustomDayBeforeHour] = useState('19:00');
   const [customSameDayEnabled, setCustomSameDayEnabled] = useState(true);
-  const [customSameDayHour, setCustomSameDayHour] = useState('6');
+  const [customSameDayHour, setCustomSameDayHour] = useState('06:00');
 
   const [errors, setErrors] = useState<ValidationError[]>([]);
 
@@ -62,9 +68,9 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
       setNotes(editingBirthday.notes || '');
       setReminderMode(editingBirthday.reminder.mode);
       setCustomDayBeforeEnabled(editingBirthday.reminder.customDayBeforeEnabled);
-      setCustomDayBeforeHour(String(editingBirthday.reminder.customDayBeforeHour));
+      setCustomDayBeforeHour(formatReminderTime(editingBirthday.reminder.customDayBeforeHour, editingBirthday.reminder.customDayBeforeMinute));
       setCustomSameDayEnabled(editingBirthday.reminder.customSameDayEnabled);
-      setCustomSameDayHour(String(editingBirthday.reminder.customSameDayHour));
+      setCustomSameDayHour(formatReminderTime(editingBirthday.reminder.customSameDayHour, editingBirthday.reminder.customSameDayMinute));
     } else {
       setName('');
       setDay('');
@@ -73,51 +79,43 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
       setNotes('');
       setReminderMode('default');
       setCustomDayBeforeEnabled(true);
-      setCustomDayBeforeHour('19');
+      setCustomDayBeforeHour('19:00');
       setCustomSameDayEnabled(true);
-      setCustomSameDayHour('6');
+      setCustomSameDayHour('06:00');
     }
     setErrors([]);
   }, [editingBirthday, visible]);
 
-  const numDay = parseInt(day, 10);
+  const numDay = /^\d{1,2}$/.test(day.trim()) ? Number(day) : NaN;
   const numMonth = parseInt(month, 10);
-  const numYear = year.trim() ? parseInt(year, 10) : undefined;
+  const numYear = !year.trim() ? undefined : /^\d{4}$/.test(year.trim()) ? Number(year) : NaN;
 
-  const numDayBeforeHour = Math.min(23, Math.max(0, parseInt(customDayBeforeHour, 10) || 19));
-  const numSameDayHour = Math.min(23, Math.max(0, parseInt(customSameDayHour, 10) || 6));
-
-  const currentInput: CreateBirthdayInput = {
-    name,
-    birthDay: isNaN(numDay) ? 0 : numDay,
-    birthMonth: isNaN(numMonth) ? 0 : numMonth,
-    birthYear: numYear,
-    notes,
-    reminder: {
-      mode: reminderMode,
-      customDayBeforeEnabled,
-      customDayBeforeHour: numDayBeforeHour,
-      customDayBeforeMinute: 0,
-      customSameDayEnabled,
-      customSameDayHour: numSameDayHour,
-      customSameDayMinute: 0,
-    },
+  const eve = parseReminderTime(customDayBeforeHour);
+  const sameDay = parseReminderTime(customSameDayHour);
+  const reminder = {
+    mode: reminderMode,
+    customDayBeforeEnabled,
+    customDayBeforeHour: eve?.hour ?? editingBirthday?.reminder.customDayBeforeHour ?? 19,
+    customDayBeforeMinute: eve?.minute ?? editingBirthday?.reminder.customDayBeforeMinute ?? 0,
+    customSameDayEnabled,
+    customSameDayHour: sameDay?.hour ?? editingBirthday?.reminder.customSameDayHour ?? 6,
+    customSameDayMinute: sameDay?.minute ?? editingBirthday?.reminder.customSameDayMinute ?? 0,
   };
-
-  const hasValidDate = !isNaN(numDay) && numDay >= 1 && numDay <= 31 && !isNaN(numMonth) && numMonth >= 1 && numMonth <= 12;
-  const preview = hasValidDate ? getNextBirthdayDate(numMonth, numDay) : null;
-  const nextAgePreview = preview && numYear ? calculateNextAge(numYear, preview.nextDate) : null;
-
-  const globalSettings = getGlobalSettings();
+  const currentInput: CreateBirthdayInput = {
+    name, birthDay: numDay, birthMonth: numMonth, birthYear: numYear, notes, reminder,
+  };
+  const dateIsValid = validateBirthdayInput(currentInput).every(error => error.field === 'name');
+  const preview = dateIsValid ? getNextBirthdayDate(numMonth, numDay) : null;
+  const nextAgePreview = preview ? calculateNextAge(numYear, preview.nextDate) : null;
+  const hasInvalidReminder = reminderMode === 'custom' &&
+    ((customDayBeforeEnabled && !eve) || (customSameDayEnabled && !sameDay));
 
   const handleValidateAndSave = () => {
+    if (saving) return;
     const valErrors = validateBirthdayInput(currentInput);
-    if (valErrors.length > 0) {
-      setErrors(valErrors);
-      return;
-    }
-    setErrors([]);
-    onSave(currentInput);
+    if (hasInvalidReminder) valErrors.push({ field: 'reminder', message: 'Saisissez un horaire entre 00:00 et 23:59.' });
+    setErrors(valErrors);
+    if (valErrors.length === 0) onSave(currentInput);
   };
 
   const getFieldError = (field: ValidationError['field']) => {
@@ -125,7 +123,7 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={() => { if (!saving) onClose(); }}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.backdrop}
@@ -135,16 +133,17 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
             <Text style={styles.modalTitle}>
               {editingBirthday ? 'Modifier la fiche' : 'Nouvel anniversaire'}
             </Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.7}>
+            <TouchableOpacity onPress={onClose} disabled={saving} style={styles.closeBtn} activeOpacity={0.7}>
               <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.formScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {/* Prénom / Surnom */}
             <Text style={styles.label}>Prénom ou surnom *</Text>
             <TextInput
               style={[styles.input, getFieldError('name') ? styles.inputError : null]}
+              accessibilityLabel="Prénom ou surnom"
               placeholder="Ex : Maman, Sophie, Lucas..."
               placeholderTextColor="#A09398"
               value={name}
@@ -160,6 +159,7 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
                 <Text style={styles.label}>Jour *</Text>
                 <TextInput
                   style={[styles.input, getFieldError('birthDay') ? styles.inputError : null]}
+                  accessibilityLabel="Jour de naissance"
                   placeholder="1 - 31"
                   placeholderTextColor="#A09398"
                   keyboardType="numeric"
@@ -178,6 +178,9 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
                     return (
                       <TouchableOpacity
                         key={mVal}
+                        accessibilityRole="button"
+                        accessibilityLabel={mName}
+                        accessibilityState={{ selected: isSelected }}
                         style={[styles.monthPill, isSelected ? styles.monthPillActive : null]}
                         onPress={() => setMonth(mVal)}
                         activeOpacity={0.8}
@@ -201,6 +204,7 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
             <Text style={styles.label}>Année de naissance (facultative)</Text>
             <TextInput
               style={[styles.input, getFieldError('birthYear') ? styles.inputError : null]}
+              accessibilityLabel="Année de naissance"
               placeholder="Ex : 1985 (permet de calculer l'âge)"
               placeholderTextColor="#A09398"
               keyboardType="numeric"
@@ -214,7 +218,7 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
 
             {/* SECTION RAPPELS (LOT 3) */}
             <View style={styles.reminderSection}>
-              <Text style={styles.sectionHeaderTitle}>🔔 Réglage des rappels annuels</Text>
+              <Text style={styles.sectionHeaderTitle}>Rappels annuels</Text>
 
               {/* Mode switch */}
               <View style={styles.modeTabsRow}>
@@ -252,65 +256,26 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
               {/* Contenu selon le mode */}
               {reminderMode === 'default' && (
                 <View style={styles.modeDescriptionCard}>
-                  <Text style={styles.modeDescriptionText}>
-                    Hérite des réglages globaux :
-                    {globalSettings.dayBeforeEnabled ? ` • La veille à ${globalSettings.dayBeforeHour}h` : ''}
-                    {globalSettings.sameDayEnabled ? ` • Le jour même à ${globalSettings.sameDayHour}h` : ''}
-                  </Text>
+                  <Text style={styles.modeDescriptionText}>Utilise les horaires définis dans Paramètres.</Text>
                 </View>
               )}
-
               {reminderMode === 'custom' && (
                 <View style={styles.customCard}>
-                  {/* Veille */}
-                  <View style={styles.customRow}>
-                    <View style={styles.customLabelBox}>
-                      <Text style={styles.customTitle}>Rappel la veille</Text>
-                      <Text style={styles.customSub}>1 jour calendaire avant</Text>
+                  {[
+                    { label: 'La veille', enabled: customDayBeforeEnabled, toggle: setCustomDayBeforeEnabled, time: customDayBeforeHour, setTime: setCustomDayBeforeHour },
+                    { label: 'Le jour même', enabled: customSameDayEnabled, toggle: setCustomSameDayEnabled, time: customSameDayHour, setTime: setCustomSameDayHour },
+                  ].map(({ label, enabled, toggle, time, setTime }) => (
+                    <View key={label} style={styles.customRow}>
+                      <View style={styles.customLabelBox}><Text style={styles.customTitle}>{label}</Text></View>
+                      {enabled && <ReminderTimeInput label={`Horaire · ${label}`} value={time} onChange={setTime} disabled={saving} />}
+                      <Switch
+                        value={enabled} onValueChange={toggle} disabled={saving}
+                        accessibilityLabel={`Activer le rappel · ${label}`}
+                        trackColor={{ false: THEME.colors.border, true: THEME.colors.primary }}
+                      />
                     </View>
-                    <Switch
-                      value={customDayBeforeEnabled}
-                      onValueChange={setCustomDayBeforeEnabled}
-                      thumbColor={customDayBeforeEnabled ? THEME.colors.primary : '#ccc'}
-                    />
-                    {customDayBeforeEnabled && (
-                      <View style={styles.hourInputBox}>
-                        <TextInput
-                          style={styles.hourInput}
-                          keyboardType="numeric"
-                          maxLength={2}
-                          value={customDayBeforeHour}
-                          onChangeText={setCustomDayBeforeHour}
-                        />
-                        <Text style={styles.hourSuffix}>h00</Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Jour même */}
-                  <View style={[styles.customRow, { borderTopWidth: 1, borderTopColor: THEME.colors.borderLight, paddingTop: 8 }]}>
-                    <View style={styles.customLabelBox}>
-                      <Text style={styles.customTitle}>Rappel le jour même</Text>
-                      <Text style={styles.customSub}>Le matin de l'anniversaire</Text>
-                    </View>
-                    <Switch
-                      value={customSameDayEnabled}
-                      onValueChange={setCustomSameDayEnabled}
-                      thumbColor={customSameDayEnabled ? THEME.colors.primary : '#ccc'}
-                    />
-                    {customSameDayEnabled && (
-                      <View style={styles.hourInputBox}>
-                        <TextInput
-                          style={styles.hourInput}
-                          keyboardType="numeric"
-                          maxLength={2}
-                          value={customSameDayHour}
-                          onChangeText={setCustomSameDayHour}
-                        />
-                        <Text style={styles.hourSuffix}>h00</Text>
-                      </View>
-                    )}
-                  </View>
+                  ))}
+                  {!!getFieldError('reminder') && <Text accessibilityRole="alert" style={styles.errorText}>{getFieldError('reminder')}</Text>}
                 </View>
               )}
 
@@ -323,16 +288,22 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
               )}
             </View>
 
-            {/* Aperçu dynamique du calcul de la date */}
             {preview && (
               <View style={styles.previewBox}>
-                <Text style={styles.previewTitle}>✨ Aperçu des calculs :</Text>
+                <Text style={styles.previewTitle}>Prochain anniversaire</Text>
                 <Text style={styles.previewText}>
-                  • Prochaine date : {preview.isToday ? 'Aujourd’hui !' : `Dans ${preview.daysRemaining} jour(s)`}
+                  {preview.isToday ? 'Aujourd’hui' : preview.nextDate.toLocaleDateString('fr-FR', { dateStyle: 'long' })}
+                  {nextAgePreview !== null ? ` · ${nextAgePreview} ans` : ''}
                 </Text>
-                {nextAgePreview !== null && (
-                  <Text style={styles.previewText}>• Âge qui sera fêté : {nextAgePreview} ans</Text>
-                )}
+                {!hasInvalidReminder && getReminderRules(getEffectiveReminderSettings(reminder, defaults))
+                  .filter(rule => rule.enabled).map(rule => {
+                    const date = getNextReminderOccurrence(numMonth, numDay, rule.type, rule.hour, rule.minute);
+                    return (
+                      <Text key={rule.type} style={styles.previewText}>
+                        {rule.label} · {date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à {formatReminderTime(rule.hour, rule.minute)}
+                      </Text>
+                    );
+                  })}
               </View>
             )}
 
@@ -350,13 +321,13 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
           </ScrollView>
 
           <View style={styles.modalFooter}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={onClose} disabled={saving} activeOpacity={0.8}>
               <Text style={styles.cancelBtnText}>Annuler</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.saveBtn} onPress={handleValidateAndSave} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleValidateAndSave} disabled={saving} accessibilityRole="button" activeOpacity={0.8}>
               <Text style={styles.saveBtnText}>
-                {editingBirthday ? 'Enregistrer' : 'Ajouter'}
+                {saving ? 'Enregistrement…' : editingBirthday ? 'Enregistrer' : 'Ajouter'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -369,14 +340,14 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(49, 18, 38, 0.38)',
     justifyContent: 'flex-end',
   },
   modalCard: {
     backgroundColor: THEME.colors.cardBackground,
-    borderTopLeftRadius: THEME.borderRadius.xl,
-    borderTopRightRadius: THEME.borderRadius.xl,
-    padding: THEME.spacing.lg,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 20,
     maxHeight: '92%',
   },
   modalHeader: {
@@ -386,7 +357,7 @@ const styles = StyleSheet.create({
     marginBottom: THEME.spacing.md,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
   },
@@ -411,10 +382,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   input: {
-    backgroundColor: '#FAF5EE',
+    backgroundColor: THEME.colors.background,
     borderWidth: 1,
-    borderColor: THEME.colors.border,
-    borderRadius: THEME.borderRadius.md,
+    borderColor: THEME.colors.borderLight,
+    borderRadius: 15,
     paddingHorizontal: THEME.spacing.md,
     paddingVertical: 10,
     fontSize: 14,
@@ -448,8 +419,8 @@ const styles = StyleSheet.create({
   monthPill: {
     paddingHorizontal: 10,
     paddingVertical: 8,
-    borderRadius: THEME.borderRadius.md,
-    backgroundColor: '#FAF5EE',
+    borderRadius: 14,
+    backgroundColor: THEME.colors.background,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     marginRight: 6,
@@ -469,14 +440,14 @@ const styles = StyleSheet.create({
   },
   reminderSection: {
     marginTop: THEME.spacing.md,
-    backgroundColor: '#FCFAF7',
+    backgroundColor: '#FFF5F0',
     padding: THEME.spacing.md,
-    borderRadius: THEME.borderRadius.md,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: THEME.colors.border,
   },
   sectionHeaderTitle: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
     marginBottom: 8,
@@ -488,16 +459,16 @@ const styles = StyleSheet.create({
   },
   modeTab: {
     flex: 1,
-    paddingVertical: 6,
-    borderRadius: THEME.borderRadius.round,
+    paddingVertical: 9,
+    borderRadius: 13,
     alignItems: 'center',
-    backgroundColor: '#EDE3D8',
+    backgroundColor: THEME.colors.background,
   },
   modeTabActive: {
     backgroundColor: THEME.colors.primary,
   },
   modeTabText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
@@ -506,17 +477,17 @@ const styles = StyleSheet.create({
   },
   modeDescriptionCard: {
     backgroundColor: THEME.colors.surface,
-    padding: 8,
-    borderRadius: THEME.borderRadius.sm,
+    padding: 11,
+    borderRadius: 13,
   },
   modeDescriptionText: {
     fontSize: 11,
     color: THEME.colors.textPrimary,
   },
   customCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: THEME.borderRadius.sm,
-    padding: 8,
+    backgroundColor: THEME.colors.cardBackground,
+    borderRadius: 14,
+    padding: 10,
     borderWidth: 1,
     borderColor: THEME.colors.borderLight,
   },
@@ -533,33 +504,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
-  },
-  customSub: {
-    fontSize: 10,
-    color: THEME.colors.textSecondary,
-  },
-  hourInputBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  hourInput: {
-    width: 36,
-    height: 32,
-    backgroundColor: '#FAF5EE',
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
-    borderRadius: THEME.borderRadius.sm,
-    textAlign: 'center',
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-    fontSize: 13,
-    padding: 0,
-  },
-  hourSuffix: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-    marginLeft: 2,
   },
   textArea: {
     minHeight: 64,
@@ -587,15 +531,16 @@ const styles = StyleSheet.create({
   modalFooter: {
     flexDirection: 'row',
     gap: THEME.spacing.sm,
-    paddingTop: THEME.spacing.sm,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: THEME.colors.borderLight,
   },
   cancelBtn: {
     flex: 1,
+    minHeight: 50,
     paddingVertical: 12,
     alignItems: 'center',
-    borderRadius: THEME.borderRadius.md,
+    borderRadius: 16,
     backgroundColor: THEME.colors.surface,
   },
   cancelBtnText: {
@@ -605,9 +550,10 @@ const styles = StyleSheet.create({
   },
   saveBtn: {
     flex: 2,
+    minHeight: 50,
     paddingVertical: 12,
     alignItems: 'center',
-    borderRadius: THEME.borderRadius.md,
+    borderRadius: 16,
     backgroundColor: THEME.colors.primary,
   },
   saveBtnText: {

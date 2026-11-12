@@ -31,8 +31,8 @@ export const BirthdayCard: React.FC<BirthdayCardProps> = ({ birthday, onEdit, on
   );
 
   const getBadgeStyle = () => {
-    if (isToday) return { bg: THEME.colors.primary, text: '#FFFFFF', label: '🎉 Aujourd’hui !' };
-    if (daysRemaining === 1) return { bg: THEME.colors.accent, text: '#FFFFFF', label: '⏳ Demain' };
+    if (isToday) return { bg: THEME.colors.primary, text: '#FFFFFF', label: 'Aujourd’hui' };
+    if (daysRemaining === 1) return { bg: THEME.colors.accent, text: '#FFFFFF', label: 'Demain' };
     if (daysRemaining <= 7) return { bg: THEME.colors.warningBg, text: THEME.colors.warning, label: `Dans ${daysRemaining} jours` };
     return { bg: THEME.colors.surface, text: THEME.colors.textPrimary, label: `Dans ${daysRemaining} jours` };
   };
@@ -45,21 +45,21 @@ export const BirthdayCard: React.FC<BirthdayCardProps> = ({ birthday, onEdit, on
     const mode = reminder?.mode ?? 'default';
 
     if (mode === 'disabled') {
-      return { text: '🔕 Rappels désactivés', color: THEME.colors.textSecondary, bg: '#F3EFEA' };
+      return { text: 'Rappels désactivés', color: THEME.colors.textSecondary, bg: '#F3EFEA' };
     }
     if (mode === 'default') {
       const g = getGlobalSettings();
       const parts = [];
       if (g.dayBeforeEnabled) parts.push(`Veille ${g.dayBeforeHour}h`);
       if (g.sameDayEnabled) parts.push(`Jour J ${g.sameDayHour}h`);
-      return { text: `🔔 Par défaut (${parts.join(', ')})`, color: THEME.colors.primary, bg: THEME.colors.surface };
+      return { text: `Par défaut (${parts.join(', ')})`, color: THEME.colors.primary, bg: THEME.colors.surface };
     }
     // Mode personnalisé
     const parts = [];
     if (reminder?.customDayBeforeEnabled) parts.push(`Veille ${reminder.customDayBeforeHour}h`);
     if (reminder?.customSameDayEnabled) parts.push(`Jour J ${reminder.customSameDayHour}h`);
     const label = parts.length > 0 ? parts.join(', ') : 'Aucun';
-    return { text: `⚙ Personnalisé (${label})`, color: '#0284C7', bg: '#E0F2FE' };
+    return { text: `Personnalisé (${label})`, color: '#8D3A78', bg: THEME.colors.lavender };
   };
 
   const reminderBadge = getReminderLabel();
@@ -82,7 +82,7 @@ export const BirthdayCard: React.FC<BirthdayCardProps> = ({ birthday, onEdit, on
           </View>
           <Text style={styles.dateText}>
             {birthday.birthDay === 1 ? '1er' : birthday.birthDay} {monthName}
-            {birthday.birthYear ? ` ${birthday.birthYear}` : ' (année non précisée)'}
+            {birthday.birthYear ? ` ${birthday.birthYear}` : ''}
             {birthday.birthMonth === 2 && birthday.birthDay === 29 && effectiveDay.day === 28 ? ' · fêté le 28 fév' : ''}
           </Text>
         </View>
@@ -133,16 +133,16 @@ export const BirthdayCard: React.FC<BirthdayCardProps> = ({ birthday, onEdit, on
 const styles = StyleSheet.create({
   card: {
     backgroundColor: THEME.colors.cardBackground,
-    borderRadius: THEME.borderRadius.md,
-    padding: THEME.spacing.md,
-    marginBottom: THEME.spacing.sm,
+    borderRadius: 22,
+    padding: 15,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: THEME.colors.border,
+    borderColor: THEME.colors.borderLight,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOpacity: 0.035,
+    shadowRadius: 5,
+    elevation: 1,
   },
   headerRow: {
     flexDirection: 'row',
@@ -150,14 +150,12 @@ const styles = StyleSheet.create({
     gap: THEME.spacing.md,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: THEME.colors.surface,
+    width: 49,
+    height: 49,
+    borderRadius: 18,
+    backgroundColor: THEME.colors.lavender,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
   },
   avatarText: {
     fontSize: 18,
@@ -174,7 +172,7 @@ const styles = StyleSheet.create({
   },
   nameText: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
     color: THEME.colors.textPrimary,
   },
   ageBadge: {
@@ -194,8 +192,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   daysBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: THEME.borderRadius.round,
   },
   daysBadgeText: {
@@ -204,24 +202,22 @@ const styles = StyleSheet.create({
   },
   reminderRow: {
     flexDirection: 'row',
-    marginTop: 6,
+    marginTop: 9,
   },
   reminderPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: THEME.borderRadius.round,
   },
   reminderPillText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
   },
   notesBox: {
-    backgroundColor: '#FCF8F2',
-    padding: 8,
-    borderRadius: THEME.borderRadius.sm,
-    marginTop: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: THEME.colors.accent,
+    backgroundColor: THEME.colors.background,
+    padding: 10,
+    borderRadius: 13,
+    marginTop: 9,
   },
   notesText: {
     fontSize: 12,
@@ -232,14 +228,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: THEME.spacing.md,
-    marginTop: THEME.spacing.sm,
-    paddingTop: 8,
+    marginTop: 10,
+    paddingTop: 9,
     borderTopWidth: 1,
     borderTopColor: THEME.colors.borderLight,
   },
   actionButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   editButtonText: {
     fontSize: 12,

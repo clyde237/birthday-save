@@ -1,4 +1,4 @@
-import { validateBirthdayInput } from './src/database/birthdayRepository';
+import { validateBirthdayInput } from './src/utils/birthdayValidation';
 import { getNextBirthdayDate, calculateNextAge } from './src/utils/dateUtils';
 
 function runLot2Tests() {
@@ -33,6 +33,20 @@ function runLot2Tests() {
   const err6 = validateBirthdayInput({ name: 'Maman', birthDay: 2, birthMonth: 2 });
   if (err6.length !== 0) throw new Error('Fiche valide sans année rejetée à tort');
   console.log('✅ Fiche valide sans année acceptée');
+
+  const reference = new Date(2026, 10, 12, 12);
+  const invalidCases = [
+    { birthDay: NaN, birthMonth: 2, field: 'birthDay' },
+    { birthDay: 10, birthMonth: 1.5, field: 'birthMonth' },
+    { birthDay: 15, birthMonth: 11, birthYear: 2026, field: 'birthYear' },
+    { birthDay: 15, birthMonth: 3, birthYear: NaN, field: 'birthYear' },
+    { birthDay: 15, birthMonth: 3, reminder: { customSameDayMinute: 60 }, field: 'reminder' },
+  ];
+  for (const { field, ...input } of invalidCases) {
+    if (!validateBirthdayInput({ name: 'Test', ...input }, reference).some(error => error.field === field)) {
+      throw new Error(`La validation doit rejeter le champ ${field}`);
+    }
+  }
 
   // 7. Calcul d'occurrence d'anniversaire du jour
   const today = new Date();

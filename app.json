@@ -21,7 +21,8 @@
         "monochromeImage": "./assets/birthday-save-brand/expo/android-monochrome-1024.png"
       },
       "package": "com.birthdaysave.app",
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["android.permission.SCHEDULE_EXACT_ALARM"]
     },
     "plugins": [
       [
@@ -31,7 +32,16 @@
           "color": "#AE1F4D"
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/birthday-save-brand/expo/splash-screen-1024.png",
+          "backgroundColor": "#B12552",
+          "imageWidth": 320,
+          "resizeMode": "contain"
+        }
+      ]
     ],
     "web": {
       "favicon": "./assets/favicon.png"

@@ -1,308 +1,139 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Switch,
-  TextInput,
-  Alert,
-} from 'react-native';
-import { GlobalReminderSettings, PermissionReport } from '../types';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Switch } from 'react-native';
+import { Bell, Clock } from 'lucide-react-native';
+import type { GlobalReminderSettings, PermissionReport } from '../types';
 import { THEME } from '../constants/theme';
-import {
-  getGlobalSettings,
-  saveGlobalSettings,
-} from '../database/settingsRepository';
-import { syncAllDefaultInheritedReminders } from '../services/reminderScheduler';
+import { formatReminderTime, parseReminderTime } from '../utils/reminderRules';
+import { ReminderTimeInput } from './ReminderTimeInput';
 
-interface GlobalSettingsSectionProps {
+interface Props {
+  settings: GlobalReminderSettings;
   permission: PermissionReport | null;
+  saving: boolean;
+  syncFailed: boolean;
   onRequestPermission: () => void;
-  defaultProfilesCount: number;
-  onRefreshAll: () => Promise<void>;
-  onLogEvent?: (type: 'scheduled' | 'received' | 'response' | 'cancelled' | 'error', title: string, details: string) => void;
+  onRequestExactAlarm: () => void;
+  onRetry: () => void;
+  onSave: (settings: GlobalReminderSettings) => Promise<boolean>;
 }
 
-export const GlobalSettingsSection: React.FC<GlobalSettingsSectionProps> = ({
-  permission,
-  onRequestPermission,
-  defaultProfilesCount,
-  onRefreshAll,
-  onLogEvent,
-}) => {
-  const [settings, setSettings] = useState<GlobalReminderSettings>(getGlobalSettings());
-  const [dayBeforeHour, setDayBeforeHour] = useState(String(settings.dayBeforeHour));
-  const [sameDayHour, setSameDayHour] = useState(String(settings.sameDayHour));
+export function GlobalSettingsSection({
+  settings, permission, saving, syncFailed, onRequestPermission, onRequestExactAlarm, onRetry, onSave,
+}: Props) {
+  const [eveEnabled, setEveEnabled] = useState(settings.dayBeforeEnabled);
+  const [dayEnabled, setDayEnabled] = useState(settings.sameDayEnabled);
+  const [eveTime, setEveTime] = useState(formatReminderTime(settings.dayBeforeHour, settings.dayBeforeMinute));
+  const [dayTime, setDayTime] = useState(formatReminderTime(settings.sameDayHour, settings.sameDayMinute));
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    const s = getGlobalSettings();
-    setSettings(s);
-    setDayBeforeHour(String(s.dayBeforeHour));
-    setSameDayHour(String(s.sameDayHour));
-  }, []);
+    setEveEnabled(settings.dayBeforeEnabled);
+    setDayEnabled(settings.sameDayEnabled);
+    setEveTime(formatReminderTime(settings.dayBeforeHour, settings.dayBeforeMinute));
+    setDayTime(formatReminderTime(settings.sameDayHour, settings.sameDayMinute));
+  }, [settings.dayBeforeEnabled, settings.sameDayEnabled, settings.dayBeforeHour, settings.dayBeforeMinute, settings.sameDayHour, settings.sameDayMinute]);
 
-  const handleSave = async () => {
-    const numEve = Math.min(23, Math.max(0, parseInt(dayBeforeHour, 10) || 19));
-    const numDay = Math.min(23, Math.max(0, parseInt(sameDayHour, 10) || 6));
-
-    const updated: GlobalReminderSettings = {
-      ...settings,
-      dayBeforeHour: numEve,
-      sameDayHour: numDay,
-    };
-
-    saveGlobalSettings(updated);
-    setSettings(updated);
-
-    // Reprogrammer uniquement les fiches qui en héritent
-    const count = await syncAllDefaultInheritedReminders(updated);
-    onLogEvent?.(
-      'scheduled',
-      'Réglages globaux mis à jour',
-      `Nouvelles valeurs (Veille ${numEve}h / Jour J ${numDay}h). ${count} fiche(s) reprogrammée(s).`
-    );
-
-    await onRefreshAll();
-
-    Alert.alert(
-      'Réglages enregistrés',
-      `Les rappels par défaut ont été enregistrés.\n\n${count} fiche(s) héritant de ces réglages ont été automatiquement reprogrammées dans Android.`
-    );
+  const save = async () => {
+    const eve = eveEnabled ? parseReminderTime(eveTime) : { hour: settings.dayBeforeHour, minute: settings.dayBeforeMinute };
+    const day = dayEnabled ? parseReminderTime(dayTime) : { hour: settings.sameDayHour, minute: settings.sameDayMinute };
+    if (!eve || !day) {
+      setError('Saisissez un horaire entre 00:00 et 23:59.');
+      return;
+    }
+    setError('');
+    setSaved(await onSave({
+      dayBeforeEnabled: eveEnabled, dayBeforeHour: eve.hour, dayBeforeMinute: eve.minute,
+      sameDayEnabled: dayEnabled, sameDayHour: day.hour, sameDayMinute: day.minute,
+    }));
   };
 
-  const isGranted = permission?.granted ?? false;
-
+  const reminders = [
+    { label: 'La veille', enabled: eveEnabled, time: eveTime, setEnabled: setEveEnabled, setTime: setEveTime },
+    { label: 'Le jour même', enabled: dayEnabled, time: dayTime, setEnabled: setDayEnabled, setTime: setDayTime },
+  ];
   return (
     <View style={styles.container}>
-      {/* 1. État des autorisations */}
       <View style={styles.card}>
-        <View style={styles.headerRow}>
-          <Text style={styles.cardTitle}>Autorisations Android</Text>
-          <View
-            style={[
-              styles.statusPill,
-              { backgroundColor: isGranted ? THEME.colors.successBg : THEME.colors.warningBg },
-            ]}
-          >
-            <Text
-              style={[
-                styles.statusText,
-                { color: isGranted ? THEME.colors.success : THEME.colors.warning },
-              ]}
-            >
-              {isGranted ? '✓ Accordées' : '⚠ Non accordées'}
-            </Text>
-          </View>
+        <View style={styles.heading}>
+          <Clock size={20} color={THEME.colors.primary} />
+          <Text accessibilityRole="header" style={styles.title}>Rappels par défaut</Text>
         </View>
-
-        <Text style={styles.description}>
-          {isGranted
-            ? 'L’application peut envoyer les alertes même avec l’écran éteint.'
-            : 'Sans autorisation, Android bloquera l’arrivée des rappels d’anniversaire.'}
-        </Text>
-
-        {!isGranted && (
-          <TouchableOpacity
-            style={styles.permissionBtn}
-            onPress={onRequestPermission}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.permissionBtnText}>🔔 Accorder l’autorisation</Text>
-          </TouchableOpacity>
-        )}
+        <Text style={styles.caption}>Ces horaires s’appliquent aux fiches qui utilisent les réglages par défaut.</Text>
+        {reminders.map(({ label, enabled, time, setEnabled, setTime }) => (
+          <View key={label} style={styles.row}>
+            <Text style={styles.label}>{label}</Text>
+            {enabled && <ReminderTimeInput label={`Horaire · ${label}`} value={time} onChange={value => { setSaved(false); setTime(value); }} disabled={saving} />}
+            <Switch
+              accessibilityLabel={`Activer le rappel · ${label}`}
+              disabled={saving}
+              value={enabled}
+              onValueChange={value => { setSaved(false); setEnabled(value); }}
+              trackColor={{ false: THEME.colors.border, true: THEME.colors.primary }}
+            />
+          </View>
+        ))}
+        {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+        {saved && <Text accessibilityLiveRegion="polite" style={styles.caption}>Horaires enregistrés.</Text>}
+        <TouchableOpacity style={styles.primaryButton} onPress={save} disabled={saving} accessibilityRole="button">
+          <Text style={styles.primaryText}>{saving ? 'Enregistrement…' : 'Enregistrer'}</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* 2. Rappels par défaut */}
-      <View style={[styles.card, { marginTop: THEME.spacing.md }]}>
-        <Text style={styles.cardTitle}>Rappels par défaut du système</Text>
-        <Text style={styles.subtitle}>
-          Ces horaires s'appliquent automatiquement à toutes les fiches en mode « Par défaut ».
+      <View style={styles.card}>
+        <View style={styles.heading}>
+          <Bell size={20} color={THEME.colors.primary} />
+          <Text accessibilityRole="header" style={styles.title}>Notifications</Text>
+        </View>
+        <Text accessibilityLiveRegion="polite" style={styles.caption}>
+          {permission === null
+            ? syncFailed ? 'L’état des autorisations est indisponible.' : 'Vérification des autorisations…'
+            : permission.channelBlocked ? 'Le canal des rappels est désactivé dans les réglages Android.'
+            : !permission.granted ? 'Les notifications sont bloquées sur cet appareil.'
+            : permission.exactAlarms === false ? 'Les rappels peuvent arriver après l’heure choisie.'
+            : 'Les notifications sont autorisées.'}
         </Text>
-
-        {/* Veille */}
-        <View style={styles.settingRow}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Rappel la veille</Text>
-            <Text style={styles.settingSub}>1 jour calendaire avant (ex: 1er fév. pour le 2 fév.)</Text>
-          </View>
-          <Switch
-            value={settings.dayBeforeEnabled}
-            onValueChange={(val) => setSettings({ ...settings, dayBeforeEnabled: val })}
-            thumbColor={settings.dayBeforeEnabled ? THEME.colors.primary : '#ccc'}
-          />
-          {settings.dayBeforeEnabled && (
-            <View style={styles.timeBox}>
-              <TextInput
-                style={styles.timeInput}
-                keyboardType="numeric"
-                maxLength={2}
-                value={dayBeforeHour}
-                onChangeText={setDayBeforeHour}
-              />
-              <Text style={styles.timeSuffix}>h00</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Jour même */}
-        <View style={[styles.settingRow, styles.settingRowBorder]}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Rappel le jour même</Text>
-            <Text style={styles.settingSub}>Le matin même de l'anniversaire</Text>
-          </View>
-          <Switch
-            value={settings.sameDayEnabled}
-            onValueChange={(val) => setSettings({ ...settings, sameDayEnabled: val })}
-            thumbColor={settings.sameDayEnabled ? THEME.colors.primary : '#ccc'}
-          />
-          {settings.sameDayEnabled && (
-            <View style={styles.timeBox}>
-              <TextInput
-                style={styles.timeInput}
-                keyboardType="numeric"
-                maxLength={2}
-                value={sameDayHour}
-                onChangeText={setSameDayHour}
-              />
-              <Text style={styles.timeSuffix}>h00</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.inheritBox}>
-          <Text style={styles.inheritText}>
-            📌 <Text style={{ fontWeight: '700' }}>{defaultProfilesCount} fiche(s)</Text> héritent actuellement de ces réglages.
-          </Text>
-        </View>
-
-        <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.8}>
-          <Text style={styles.saveBtnText}>💾 Enregistrer & reprogrammer les fiches</Text>
-        </TouchableOpacity>
+        {permission && !permission.granted && (
+          <TouchableOpacity style={styles.secondaryButton} onPress={onRequestPermission} accessibilityRole="button">
+            <Text style={styles.secondaryText}>{permission.canAskAgain ? 'Autoriser les notifications' : 'Ouvrir les réglages'}</Text>
+          </TouchableOpacity>
+        )}
+        {permission?.granted && permission.exactAlarms === false && (
+          <TouchableOpacity style={styles.secondaryButton} onPress={onRequestExactAlarm} accessibilityRole="button">
+            <Text style={styles.secondaryText}>Autoriser les alarmes exactes</Text>
+          </TouchableOpacity>
+        )}
+        {syncFailed && (
+          <>
+            <Text accessibilityRole="alert" style={styles.error}>Certains rappels n’ont pas pu être mis à jour.</Text>
+            <TouchableOpacity style={styles.secondaryButton} onPress={onRetry} accessibilityRole="button">
+              <Text style={styles.secondaryText}>Réessayer</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: THEME.spacing.lg,
-    marginTop: THEME.spacing.lg,
-  },
+  container: { paddingHorizontal: 20, marginTop: 18, gap: 14 },
   card: {
     backgroundColor: THEME.colors.cardBackground,
-    borderRadius: THEME.borderRadius.md,
-    padding: THEME.spacing.md,
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,
+    gap: 8,
   },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: THEME.colors.textPrimary,
-  },
-  subtitle: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-    marginBottom: THEME.spacing.md,
-    lineHeight: 15,
-  },
-  statusPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: THEME.borderRadius.round,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  description: {
-    fontSize: 12,
-    color: THEME.colors.textSecondary,
-    marginBottom: 8,
-  },
-  permissionBtn: {
-    backgroundColor: THEME.colors.primary,
-    paddingVertical: 8,
-    borderRadius: THEME.borderRadius.md,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  permissionBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  settingRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: THEME.colors.borderLight,
-  },
-  settingInfo: {
-    flex: 1,
-  },
-  settingLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-  },
-  settingSub: {
-    fontSize: 10,
-    color: THEME.colors.textSecondary,
-  },
-  timeBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  timeInput: {
-    width: 36,
-    height: 32,
-    backgroundColor: '#FAF5EE',
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
-    borderRadius: THEME.borderRadius.sm,
-    textAlign: 'center',
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-    fontSize: 13,
-    padding: 0,
-  },
-  timeSuffix: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-    marginLeft: 2,
-  },
-  inheritBox: {
-    backgroundColor: '#FAF5EE',
-    padding: 8,
-    borderRadius: THEME.borderRadius.sm,
-    marginTop: THEME.spacing.md,
-    marginBottom: THEME.spacing.md,
-  },
-  inheritText: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-  },
-  saveBtn: {
-    backgroundColor: THEME.colors.primary,
-    paddingVertical: 12,
-    borderRadius: THEME.borderRadius.md,
-    alignItems: 'center',
-  },
-  saveBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-  },
+  heading: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  title: { color: THEME.colors.textPrimary, fontSize: 18, fontWeight: '800', flexShrink: 1 },
+  caption: { color: THEME.colors.textSecondary, fontSize: 14, lineHeight: 21 },
+  row: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderColor: THEME.colors.borderLight },
+  label: { flex: 1, color: THEME.colors.textPrimary, fontSize: 15, fontWeight: '700' },
+  primaryButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: THEME.colors.primary, marginTop: 6 },
+  primaryText: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },
+  secondaryButton: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+  secondaryText: { color: THEME.colors.primaryDark, fontWeight: '800', fontSize: 14 },
+  error: { color: THEME.colors.danger, fontSize: 14 },
 });

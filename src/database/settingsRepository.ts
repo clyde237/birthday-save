@@ -1,5 +1,6 @@
 import { getDatabase } from './db';
-import { GlobalReminderSettings } from '../types';
+import type { GlobalReminderSettings } from '../types';
+import { isValidReminderTime } from '../utils/reminderRules';
 
 export const DEFAULT_GLOBAL_SETTINGS: GlobalReminderSettings = {
   dayBeforeEnabled: true,
@@ -36,6 +37,10 @@ export function getGlobalSettings(): GlobalReminderSettings {
 }
 
 export function saveGlobalSettings(settings: GlobalReminderSettings): void {
+  if (!isValidReminderTime(settings.dayBeforeHour, settings.dayBeforeMinute) ||
+      !isValidReminderTime(settings.sameDayHour, settings.sameDayMinute)) {
+    throw new Error('Saisissez des horaires entre 00:00 et 23:59.');
+  }
   const db = getDatabase();
   db.runSync(
     `UPDATE global_settings

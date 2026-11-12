@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Bell, CakeSlice, ChevronRight } from 'lucide-react-native';
 import { BirthdayProfile } from '../types';
 import { THEME } from '../constants/theme';
 import {
@@ -11,240 +12,316 @@ import {
 interface UpcomingSectionProps {
   birthdays: BirthdayProfile[];
   onOpenProfile: (birthday: BirthdayProfile) => void;
-  onAddNew: () => void;
+  onOpenSettings: () => void;
 }
+
+const MONTHS_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
 export const UpcomingSection: React.FC<UpcomingSectionProps> = ({
   birthdays,
   onOpenProfile,
-  onAddNew,
+  onOpenSettings,
 }) => {
   const sorted = getSortedUpcomingBirthdays(birthdays);
+  const featured = sorted[0];
+  const upcomingGroups = new Map<string, typeof sorted>();
 
-  const getBadgeStyle = (daysRemaining: number, isToday: boolean) => {
-    if (isToday) return { bg: THEME.colors.primary, text: '#FFFFFF' };
-    if (daysRemaining === 1) return { bg: THEME.colors.accent, text: '#FFFFFF' };
-    if (daysRemaining <= 7) return { bg: THEME.colors.warningBg, text: THEME.colors.warning };
-    if (daysRemaining <= 30) return { bg: '#E0F2FE', text: '#0284C7' };
-    return { bg: THEME.colors.surface, text: THEME.colors.textSecondary };
-  };
+  for (const birthday of sorted.slice(1)) {
+    const key = `${birthday.next.nextDate.getFullYear()}-${birthday.next.nextDate.getMonth()}`;
+    const group = upcomingGroups.get(key) ?? [];
+    group.push(birthday);
+    upcomingGroups.set(key, group);
+  }
 
-  const getLabel = (daysRemaining: number, isToday: boolean) => {
-    if (isToday) return 'Aujourd\'hui';
-    if (daysRemaining === 1) return 'Demain';
-    return `Dans ${daysRemaining} j`;
+  const getDaysLabel = (days: number, isToday: boolean) => {
+    if (isToday) return 'Aujourd’hui';
+    if (days === 1) return 'Demain';
+    return `Dans ${days} jours`;
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.title}>🎂 À venir</Text>
-          <Text style={styles.subtitle}>
-            {sorted.length} anniversaire{sorted.length !== 1 ? 's' : ''} enregistré{sorted.length !== 1 ? 's' : ''}
-          </Text>
-        </View>
-        <TouchableOpacity style={styles.addBtn} onPress={onAddNew} activeOpacity={0.8}>
-          <Text style={styles.addBtnText}>+ Ajouter</Text>
+      <View style={styles.topBar}>
+        <Image
+          source={require('../../assets/birthday-save-brand/logo/bs-fond-clair-128.png')}
+          style={styles.logo}
+          accessibilityLabel="Birthday-save"
+        />
+        <TouchableOpacity
+          style={styles.notificationButton}
+          onPress={onOpenSettings}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Ouvrir les paramètres de notification"
+        >
+          <Bell size={23} color={THEME.colors.primary} strokeWidth={1.8} />
         </TouchableOpacity>
       </View>
 
-      {sorted.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyIcon}>🎈</Text>
-          <Text style={styles.emptyTitle}>Aucun anniversaire</Text>
-          <Text style={styles.emptyText}>
-            Ajoutez votre premier anniversaire pour voir les prochaines dates ici.
-          </Text>
-        </View>
+      <Text accessibilityRole="header" style={styles.pageTitle}>À venir</Text>
+
+      {featured ? (
+        <TouchableOpacity
+          style={styles.featuredCard}
+          onPress={() => onOpenProfile(featured)}
+          activeOpacity={0.9}
+        >
+          <View style={styles.featuredContent}>
+            <View style={styles.eyebrow}>
+              <Text style={styles.eyebrowText}>{getDaysLabel(featured.next.daysRemaining, featured.next.isToday)}</Text>
+            </View>
+            <Text style={styles.featuredName} numberOfLines={2}>{featured.name}</Text>
+            <Text style={styles.featuredDate}>
+              {featured.next.nextDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+            </Text>
+            {featured.nextAge !== null && (
+              <Text style={styles.featuredAge}>Fête ses {featured.nextAge} ans</Text>
+            )}
+          </View>
+          <Image
+            source={require('../../assets/birthday-save-brand/illustrations/birthday-cake.png')}
+            style={styles.cakeArt}
+            resizeMode="contain"
+            accessible={false}
+          />
+        </TouchableOpacity>
       ) : (
-        sorted.map((item) => {
-          const badge = getBadgeStyle(item.next.daysRemaining, item.next.isToday);
-          const label = getLabel(item.next.daysRemaining, item.next.isToday);
-          const monthName = MONTH_NAMES_FR[item.birthMonth - 1];
-          const currentYear = new Date().getFullYear();
-          const effective = resolveEffectiveBirthday(item.birthMonth, item.birthDay, currentYear);
-          const isFeb29Adjusted = item.birthMonth === 2 && item.birthDay === 29 && effective.day === 28;
-
-          return (
-            <TouchableOpacity
-              key={item.id}
-              style={[
-                styles.upcomingCard,
-                item.next.isToday ? styles.upcomingCardToday : null,
-              ]}
-              onPress={() => onOpenProfile(item)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.leftSection}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{item.name.charAt(0).toUpperCase()}</Text>
-                </View>
-              </View>
-
-              <View style={styles.centerSection}>
-                <View style={styles.nameRow}>
-                  <Text style={styles.nameText} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  {item.nextAge !== null && (
-                    <View style={styles.agePill}>
-                      <Text style={styles.ageText}>{item.nextAge} ans</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={styles.dateText}>
-                  {item.birthDay === 1 ? '1er' : item.birthDay} {monthName}
-                  {item.birthYear ? ` · né(e) en ${item.birthYear}` : ''}
-                  {isFeb29Adjusted ? ' · fêté le 28' : ''}
-                </Text>
-              </View>
-
-              <View style={[styles.daysBadge, { backgroundColor: badge.bg }]}>
-                <Text style={[styles.daysBadgeText, { color: badge.text }]}>
-                  {label}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })
+        <View style={styles.emptyCard}>
+          <View style={styles.emptyIcon}>
+            <CakeSlice size={32} color={THEME.colors.primary} strokeWidth={1.5} />
+          </View>
+          <Text style={styles.emptyTitle}>Aucun anniversaire</Text>
+          <Text style={styles.emptyText}>Appuyez sur + pour ajouter un anniversaire.</Text>
+        </View>
       )}
+
+      {Array.from(upcomingGroups.entries()).map(([key, group]) => {
+        const [year, monthIndex] = key.split('-').map(Number);
+        const monthTitle = MONTH_NAMES_FR[monthIndex].toLocaleLowerCase('fr-FR');
+        return (
+          <View key={key} style={styles.monthSection}>
+            <View style={styles.sectionHeading}>
+              <Text style={styles.sectionTitle}>En {monthTitle}</Text>
+              <Text style={styles.sectionYear}>{year}</Text>
+            </View>
+
+            {group.map((birthday, index) => {
+              const next = birthday.next.nextDate;
+              const effective = resolveEffectiveBirthday(birthday.birthMonth, birthday.birthDay, next.getFullYear());
+              const isFeb29Adjusted = birthday.birthMonth === 2 && birthday.birthDay === 29 && effective.day === 28;
+              return (
+                <TouchableOpacity
+                  key={birthday.id}
+                  style={styles.birthdayRow}
+                  onPress={() => onOpenProfile(birthday)}
+                  activeOpacity={0.75}
+                >
+                  <View style={[styles.dateTile, index % 2 === 0 ? styles.dateTileLavender : styles.dateTilePeach]}>
+                    <Text style={styles.dateDay}>{next.getDate()}</Text>
+                    <Text style={styles.dateMonth}>{MONTHS_SHORT[next.getMonth()]}</Text>
+                  </View>
+                  <View style={styles.birthdayInfo}>
+                    <Text style={styles.birthdayName} numberOfLines={1}>{birthday.name}</Text>
+                    <Text style={styles.birthdayMeta}>
+                      {isFeb29Adjusted ? 'Fêté le 28' : getDaysLabel(birthday.next.daysRemaining, birthday.next.isToday)}
+                      {birthday.nextAge !== null ? ` · ${birthday.nextAge} ans` : ''}
+                    </Text>
+                  </View>
+                  <ChevronRight size={20} color={THEME.colors.textSecondary} strokeWidth={1.8} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        );
+      })}
+
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: THEME.spacing.lg,
-    marginTop: THEME.spacing.lg,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 22,
   },
-  headerRow: {
+  topBar: {
+    height: 48,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: THEME.spacing.md,
+    marginBottom: 9,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: THEME.colors.textPrimary,
+  logo: {
+    width: 48,
+    height: 48,
+    resizeMode: 'contain',
   },
-  subtitle: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-    marginTop: 2,
-  },
-  addBtn: {
-    backgroundColor: THEME.colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: THEME.borderRadius.md,
-  },
-  addBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  emptyCard: {
-    backgroundColor: THEME.colors.cardBackground,
-    borderRadius: THEME.borderRadius.md,
-    padding: THEME.spacing.xl,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
-    borderStyle: 'dashed',
-  },
-  emptyIcon: {
-    fontSize: 36,
-    marginBottom: 8,
-  },
-  emptyTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-  },
-  emptyText: {
-    fontSize: 12,
-    color: THEME.colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 17,
-  },
-  upcomingCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME.colors.cardBackground,
-    borderRadius: THEME.borderRadius.md,
-    padding: THEME.spacing.md,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  upcomingCardToday: {
-    borderColor: THEME.colors.primary,
-    borderWidth: 2,
-    backgroundColor: '#FFF5F7',
-  },
-  leftSection: {
-    marginRight: THEME.spacing.md,
-  },
-  avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: THEME.colors.surface,
+  notificationButton: {
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: THEME.colors.cardBackground,
     borderWidth: 1,
-    borderColor: THEME.colors.border,
+    borderColor: THEME.colors.borderLight,
   },
-  avatarText: {
-    fontSize: 17,
+  pageTitle: {
+    color: THEME.colors.textPrimary,
+    fontSize: 34,
+    lineHeight: 40,
     fontWeight: '800',
-    color: THEME.colors.primary,
+    letterSpacing: -1,
+    marginBottom: 18,
   },
-  centerSection: {
+  featuredCard: {
+    minHeight: 205,
+    borderRadius: 28,
+    padding: 21,
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#FFD6B4',
+    marginBottom: 25,
+  },
+  featuredContent: {
     flex: 1,
+    zIndex: 1,
   },
-  nameRow: {
+  eyebrow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    marginBottom: 10,
   },
-  nameText: {
-    fontSize: 15,
-    fontWeight: '700',
+  eyebrowText: {
+    color: THEME.colors.primaryDark,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  featuredName: {
     color: THEME.colors.textPrimary,
+    fontSize: 28,
+    lineHeight: 33,
+    fontWeight: '800',
+    maxWidth: 165,
   },
-  agePill: {
-    backgroundColor: THEME.colors.surface,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: THEME.borderRadius.round,
+  featuredDate: {
+    color: THEME.colors.textPrimary,
+    fontSize: 18,
+    marginTop: 5,
+    fontWeight: '500',
   },
-  ageText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: THEME.colors.primary,
+  featuredAge: {
+    color: THEME.colors.primaryDark,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 8,
   },
-  dateText: {
-    fontSize: 11,
+  cakeArt: {
+    width: 130,
+    height: 170,
+    marginRight: -7,
+  },
+  monthSection: {
+    marginBottom: 16,
+  },
+  sectionHeading: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  sectionTitle: {
+    color: THEME.colors.textPrimary,
+    fontSize: 21,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  sectionYear: {
     color: THEME.colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  birthdayRow: {
+    minHeight: 67,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF1EB',
+    borderRadius: 20,
+    marginBottom: 8,
+  },
+  dateTile: {
+    width: 57,
+    height: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    marginRight: 13,
+  },
+  dateTileLavender: {
+    backgroundColor: THEME.colors.lavender,
+  },
+  dateTilePeach: {
+    backgroundColor: THEME.colors.peach,
+  },
+  dateDay: {
+    color: THEME.colors.textPrimary,
+    fontSize: 18,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
+  dateMonth: {
+    color: THEME.colors.textPrimary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  birthdayInfo: {
+    flex: 1,
+  },
+  birthdayName: {
+    color: THEME.colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  birthdayMeta: {
+    color: THEME.colors.textSecondary,
+    fontSize: 12,
     marginTop: 2,
   },
-  daysBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: THEME.borderRadius.round,
-    marginLeft: 8,
+  emptyCard: {
+    alignItems: 'center',
+    padding: 25,
+    backgroundColor: THEME.colors.cardBackground,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderLight,
   },
-  daysBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 23,
+    backgroundColor: THEME.colors.surface,
+    marginBottom: 13,
+  },
+  emptyTitle: {
+    color: THEME.colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  emptyText: {
+    color: THEME.colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+    marginTop: 7,
+    marginBottom: 17,
   },
 });

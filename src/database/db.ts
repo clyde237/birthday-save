@@ -4,16 +4,21 @@ let dbInstance: SQLite.SQLiteDatabase | null = null;
 
 export function getDatabase(): SQLite.SQLiteDatabase {
   if (!dbInstance) {
-    dbInstance = SQLite.openDatabaseSync('birthdaysave.db');
-    initDatabase(dbInstance);
+    const db = SQLite.openDatabaseSync('birthdaysave.db');
+    try {
+      db.execSync('PRAGMA journal_mode = WAL;');
+      db.withTransactionSync(() => initDatabase(db));
+      dbInstance = db;
+    } catch (error) {
+      db.closeSync();
+      throw error;
+    }
   }
   return dbInstance;
 }
 
 function initDatabase(db: SQLite.SQLiteDatabase): void {
   db.execSync(`
-    PRAGMA journal_mode = WAL;
-
     CREATE TABLE IF NOT EXISTS global_settings (
       id TEXT PRIMARY KEY NOT NULL,
       day_before_enabled INTEGER NOT NULL DEFAULT 1,

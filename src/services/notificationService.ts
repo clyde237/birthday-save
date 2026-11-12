@@ -46,53 +46,28 @@ export async function setupNotificationChannel(): Promise<void> {
  * Récupère l'état actuel des permissions de notification
  */
 export async function getNotificationPermissions(): Promise<PermissionReport> {
-  try {
-    const settings = await Notifications.getPermissionsAsync();
-    return {
-      status: settings.status,
-      granted: settings.granted,
-      canAskAgain: settings.canAskAgain,
-      androidImportance: settings.android?.importance,
-    };
-  } catch (error) {
-    console.warn('Erreur lecture permissions:', error);
-    return {
-      status: Notifications.PermissionStatus.UNDETERMINED,
-      granted: false,
-      canAskAgain: true,
-    };
-  }
+  const settings = await Notifications.getPermissionsAsync();
+  const isAndroid = Platform.OS === 'android';
+  const channel = isAndroid ? await Notifications.getNotificationChannelAsync(NOTIFICATION_CHANNEL_ID) : null;
+  const exact = isAndroid ? await Notifications.getExactAlarmPermissionsAsync() : null;
+  const channelBlocked = channel?.importance === Notifications.AndroidImportance.NONE;
+  return {
+    status: settings.status,
+    granted: !channelBlocked && (settings.granted ||
+      settings.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL),
+    canAskAgain: !channelBlocked && settings.canAskAgain,
+    androidImportance: channel?.importance ?? settings.android?.importance,
+    exactAlarms: exact?.granted,
+    channelBlocked,
+  };
 }
 
-/**
- * Demande l'autorisation de notification à l'utilisateur
- */
 export async function requestNotificationPermissions(): Promise<PermissionReport> {
-  try {
-    const settings = await Notifications.requestPermissionsAsync({
-      ios: {
-        allowAlert: true,
-        allowBadge: true,
-        allowSound: true,
-      },
-    });
-
-    await setupNotificationChannel();
-
-    return {
-      status: settings.status,
-      granted: settings.granted,
-      canAskAgain: settings.canAskAgain,
-      androidImportance: settings.android?.importance,
-    };
-  } catch (error) {
-    console.warn('Erreur demande permissions:', error);
-    return {
-      status: Notifications.PermissionStatus.DENIED,
-      granted: false,
-      canAskAgain: false,
-    };
-  }
+  await setupNotificationChannel();
+  await Notifications.requestPermissionsAsync({
+    ios: { allowAlert: true, allowBadge: true, allowSound: true },
+  });
+  return getNotificationPermissions();
 }
 
 /**
@@ -228,11 +203,13 @@ export async function scheduleMamanReferenceScenario(
 /**
  * Récupère et analyse toutes les notifications actuellement planifiées
  */
-export async function getScheduledNotificationsList(): Promise<ScheduledNotificationInfo[]> {
+export async function getScheduledNotificationsList(diagnosticsOnly = false): Promise<ScheduledNotificationInfo[]> {
   try {
     const rawList = await Notifications.getAllScheduledNotificationsAsync();
 
-    return rawList.map((item) => {
+    return rawList
+      .filter(item => !diagnosticsOnly || !item.content.data?.profileId)
+      .map((item) => {
       let triggerType = 'Inconnu';
       let triggerDetails = 'Non spécifié';
       let nextTriggerDate: string | undefined;
@@ -253,7 +230,7 @@ export async function getScheduledNotificationsList(): Promise<ScheduledNotifica
           triggerDetails = `Chaque année le ${d} ${m} à ${h}h${min} (${trigger.delivery ?? 'bestEffort'})`;
         } else if (trigger.type === 'date' || trigger.type === Notifications.SchedulableTriggerInputTypes.DATE) {
           triggerType = 'Date précise';
-          const d = new Date(trigger.date);
+          const d = new Date(trigger.value ?? trigger.date);
           triggerDetails = formatFrenchDateTime(d);
         } else {
           triggerType = String(trigger.type || 'Standard');

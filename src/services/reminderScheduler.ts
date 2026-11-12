@@ -1,138 +1,140 @@
-import {
-  BirthdayProfile,
-  GlobalReminderSettings,
-  ReminderType,
-} from '../types';
-import {
-  scheduleYearlyReminder,
-  cancelNotification,
-} from './notificationService';
-import {
-  updateNotificationIdsForBirthday,
-  getBirthdaysByReminderMode,
-} from '../database/birthdayRepository';
+import * as Notifications from 'expo-notifications';
+import type { BirthdayProfile, PermissionReport } from '../types';
+import { cancelNotification, getNotificationPermissions, NOTIFICATION_CHANNEL_ID } from './notificationService';
+import { getAllBirthdays, updateNotificationIdsForBirthday } from '../database/birthdayRepository';
 import { getGlobalSettings } from '../database/settingsRepository';
+import { planBirthdayReminders } from '../utils/reminderRules';
 
-/**
- * Synchronise et programme les notifications pour un anniversaire donné.
- * Nettoie les anciens rappels et programme uniquement les nouveaux selon le mode.
- */
-export async function syncRemindersForBirthday(
-  profile: BirthdayProfile,
-  globalSettings?: GlobalReminderSettings
-): Promise<string[]> {
-  const settings = globalSettings ?? getGlobalSettings();
+export type ReminderStatus = 'scheduled' | 'approximate' | 'disabled' | 'blocked' | 'failed';
+type ScheduleResult = Record<string, ReminderStatus>;
 
-  // 1. Annuler les anciens rappels existants pour cette fiche
-  if (profile.reminder.notificationIds && profile.reminder.notificationIds.length > 0) {
-    for (const notifId of profile.reminder.notificationIds) {
-      try {
-        await cancelNotification(notifId);
-      } catch (err) {
-        console.warn(`Erreur annulation rappel ${notifId}:`, err);
+let pendingSync: Promise<unknown> = Promise.resolve();
+
+export function reconcileBirthdayReminders(removedIds: readonly string[] = []): Promise<ScheduleResult> {
+  const sync = pendingSync.then(() => reconcile(removedIds));
+  pendingSync = sync.catch(() => undefined);
+  return sync;
+}
+
+async function reconcile(removedIds: readonly string[]): Promise<ScheduleResult> {
+  const profiles = await getAllBirthdays();
+  const settings = getGlobalSettings();
+  const permission = await getNotificationPermissions();
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  const now = new Date();
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const expected = new Map<string, Notifications.NotificationRequestInput>();
+  const profileIds = new Set(profiles.map(profile => profile.id));
+  const statuses: ScheduleResult = {};
+  const ownedIds = new Map<string, string>();
+  const removed = new Set(removedIds);
+
+  for (const profile of profiles) {
+    for (const id of profile.reminder.notificationIds ?? []) ownedIds.set(id, profile.id);
+    const plans = planBirthdayReminders(profile, settings, now);
+    statuses[profile.id] = getInitialStatus(plans.length, permission);
+    for (const plan of plans) {
+      const { occurrence, identifier, type } = plan;
+      const trigger: Notifications.YearlyTriggerInput | Notifications.DateTriggerInput = plan.yearly
+        ? {
+            type: Notifications.SchedulableTriggerInputTypes.YEARLY,
+            month: occurrence.getMonth(),
+            day: occurrence.getDate(),
+            hour: plan.hour,
+            minute: plan.minute,
+            channelId: NOTIFICATION_CHANNEL_ID,
+          }
+        : {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: occurrence.getTime(),
+            channelId: NOTIFICATION_CHANNEL_ID,
+          };
+      const signature = JSON.stringify([profile.name, trigger, permission.exactAlarms, timeZone]);
+      const isEve = type === 'day_before';
+      expected.set(identifier, {
+        identifier,
+        trigger,
+        content: {
+          title: `Anniversaire de ${profile.name}`,
+          body: isEve ? 'Son anniversaire est demain.' : 'Son anniversaire est aujourd’hui.',
+          sound: true,
+          color: '#AE1F4D',
+          data: { profileId: profile.id, reminderType: type, signature },
+        },
+      });
+    }
+  }
+
+  const currentIds = new Map<string, string[]>();
+  const remember = (profileId: string, id: string) => {
+    const ids = currentIds.get(profileId) ?? [];
+    ids.push(id);
+    currentIds.set(profileId, ids);
+  };
+
+  let orphanCancellationFailed = false;
+  for (const request of scheduled) {
+    const data = request.content.data;
+    const profileId = typeof data?.profileId === 'string' ? data.profileId : ownedIds.get(request.identifier);
+    if (!profileId && !removed.has(request.identifier)) continue;
+
+    const target = expected.get(request.identifier);
+    if (profileId && target && target.content.data?.signature === data?.signature) {
+      expected.delete(request.identifier);
+      remember(profileId, request.identifier);
+      continue;
+    }
+    try {
+      await cancelNotification(request.identifier);
+    } catch {
+      if (profileId && profileIds.has(profileId)) {
+        statuses[profileId] = 'failed';
+        remember(profileId, request.identifier);
+      } else {
+        orphanCancellationFailed = true;
       }
     }
   }
 
-  // 2. Si les rappels sont désactivés pour cette fiche, s'arrêter là
-  if (profile.reminder.mode === 'disabled') {
-    await updateNotificationIdsForBirthday(profile.id, []);
-    return [];
-  }
-
-  // 3. Déterminer la configuration effective
-  const isDefault = profile.reminder.mode === 'default';
-
-  const dayBeforeActive = isDefault
-    ? settings.dayBeforeEnabled
-    : profile.reminder.customDayBeforeEnabled;
-  const dayBeforeHour = isDefault
-    ? settings.dayBeforeHour
-    : profile.reminder.customDayBeforeHour;
-  const dayBeforeMinute = isDefault
-    ? settings.dayBeforeMinute
-    : profile.reminder.customDayBeforeMinute;
-
-  const sameDayActive = isDefault
-    ? settings.sameDayEnabled
-    : profile.reminder.customSameDayEnabled;
-  const sameDayHour = isDefault
-    ? settings.sameDayHour
-    : profile.reminder.customSameDayHour;
-  const sameDayMinute = isDefault
-    ? settings.sameDayMinute
-    : profile.reminder.customSameDayMinute;
-
-  const newNotifIds: string[] = [];
-
-  // 4. Programmer le rappel de la veille si activé
-  if (dayBeforeActive) {
-    try {
-      const idEve = await scheduleYearlyReminder(
-        profile.name,
-        profile.birthMonth,
-        profile.birthDay,
-        'day_before',
-        dayBeforeHour,
-        dayBeforeMinute,
-        'bestEffort',
-        profile.id
-      );
-      newNotifIds.push(idEve);
-    } catch (err) {
-      console.warn(`Erreur programmation veille pour ${profile.name}:`, err);
+  if (permission.granted) {
+    for (const [id, request] of expected) {
+      const profileId = request.content.data?.profileId as string;
+      if (statuses[profileId] === 'failed') continue;
+      // A punctual occurrence may pass while reconciling a large list.
+      if (request.trigger && 'date' in request.trigger && Number(request.trigger.date) <= Date.now()) continue;
+      try {
+        await Notifications.scheduleNotificationAsync(request);
+        remember(profileId, id);
+      } catch {
+        statuses[profileId] = 'failed';
+      }
     }
   }
 
-  // 5. Programmer le rappel du jour même si activé
-  if (sameDayActive) {
-    try {
-      const idDay = await scheduleYearlyReminder(
-        profile.name,
-        profile.birthMonth,
-        profile.birthDay,
-        'same_day',
-        sameDayHour,
-        sameDayMinute,
-        'bestEffort',
-        profile.id
-      );
-      newNotifIds.push(idDay);
-    } catch (err) {
-      console.warn(`Erreur programmation jour J pour ${profile.name}:`, err);
+  for (const profile of profiles) {
+    const previous = [...(profile.reminder.notificationIds ?? [])].sort();
+    const ids = (currentIds.get(profile.id) ?? []).sort();
+    if (previous.length !== ids.length || previous.some((id, index) => id !== ids[index])) {
+      await updateNotificationIdsForBirthday(profile.id, ids);
     }
   }
-
-  // 6. Mettre à jour les IDs enregistrés dans SQLite
-  await updateNotificationIdsForBirthday(profile.id, newNotifIds);
-  return newNotifIds;
+  if (orphanCancellationFailed) throw new Error('Certains anciens rappels n’ont pas pu être annulés.');
+  return statuses;
 }
 
-/**
- * Reprogramme uniquement les fiches qui héritent des réglages par défaut
- * (Règle PRD : Une modification des valeurs globales reprogramme uniquement les fiches qui en héritent).
- */
-export async function syncAllDefaultInheritedReminders(
-  newGlobalSettings: GlobalReminderSettings
-): Promise<number> {
-  const defaultProfiles = await getBirthdaysByReminderMode('default');
-
-  for (const profile of defaultProfiles) {
-    await syncRemindersForBirthday(profile, newGlobalSettings);
-  }
-
-  return defaultProfiles.length;
+function getInitialStatus(count: number, permission: PermissionReport): ReminderStatus {
+  if (count === 0) return 'disabled';
+  if (!permission.granted) return 'blocked';
+  return permission.exactAlarms === false ? 'approximate' : 'scheduled';
 }
 
-/**
- * Supprime les notifications associées lors de la suppression d'une fiche
- */
+// The development-only list can still use the same reconciliation.
+export async function syncRemindersForBirthday(profile: BirthdayProfile): Promise<string[]> {
+  await reconcileBirthdayReminders();
+  const current = (await getAllBirthdays()).find(birthday => birthday.id === profile.id);
+  return current?.reminder.notificationIds ?? [];
+}
+
 export async function cancelRemindersList(notificationIds: string[]): Promise<void> {
-  for (const notifId of notificationIds) {
-    try {
-      await cancelNotification(notifId);
-    } catch (err) {
-      console.warn(`Erreur annulation ${notifId}:`, err);
-    }
-  }
+  await reconcileBirthdayReminders(notificationIds);
 }

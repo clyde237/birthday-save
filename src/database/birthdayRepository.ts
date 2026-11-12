@@ -1,53 +1,15 @@
 import { getDatabase } from './db';
 import { BirthdayProfile, BirthdayReminderConfig, ReminderMode } from '../types';
-import { getDaysInMonth, isLeapYear } from '../utils/dateUtils';
+import { validateBirthdayInput, type CreateBirthdayInput } from '../utils/birthdayValidation';
+export { validateBirthdayInput, type CreateBirthdayInput, type ValidationError } from '../utils/birthdayValidation';
 
-export interface CreateBirthdayInput {
-  name: string;
-  birthDay: number;
-  birthMonth: number;
-  birthYear?: number;
-  notes?: string;
-  reminder?: Partial<BirthdayReminderConfig>;
-}
-
-export interface ValidationError {
-  field: 'name' | 'birthDay' | 'birthMonth' | 'birthYear';
-  message: string;
-}
-
-export function validateBirthdayInput(input: CreateBirthdayInput): ValidationError[] {
-  const errors: ValidationError[] = [];
-
-  const trimmedName = input.name?.trim();
-  if (!trimmedName || trimmedName.length === 0) {
-    errors.push({ field: 'name', message: 'Le prénom ou surnom est obligatoire.' });
+function parseNotificationIds(value?: string | null): string[] {
+  try {
+    const ids: unknown = JSON.parse(value ?? '[]');
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
   }
-
-  if (input.birthMonth < 1 || input.birthMonth > 12) {
-    errors.push({ field: 'birthMonth', message: 'Le mois doit être compris entre 1 et 12.' });
-  }
-
-  const maxDays = input.birthMonth === 2 ? 29 : getDaysInMonth(2025, input.birthMonth);
-  if (input.birthDay < 1 || input.birthDay > maxDays) {
-    errors.push({ field: 'birthDay', message: `Jour invalide pour ce mois (max ${maxDays}).` });
-  }
-
-  if (input.birthYear !== undefined && input.birthYear !== null) {
-    const currentYear = new Date().getFullYear();
-    if (input.birthYear > currentYear) {
-      errors.push({ field: 'birthYear', message: 'L’année de naissance ne peut pas être dans le futur.' });
-    } else if (input.birthYear < 1900) {
-      errors.push({ field: 'birthYear', message: 'L’année de naissance doit être supérieure à 1900.' });
-    } else if (input.birthMonth === 2 && input.birthDay === 29 && !isLeapYear(input.birthYear)) {
-      errors.push({
-        field: 'birthYear',
-        message: `${input.birthYear} n’était pas une année bissextile (le 29 février n’existait pas).`,
-      });
-    }
-  }
-
-  return errors;
 }
 
 export async function getAllBirthdays(): Promise<BirthdayProfile[]> {
@@ -77,15 +39,6 @@ export async function getAllBirthdays(): Promise<BirthdayProfile[]> {
   `);
 
   return rows.map((r) => {
-    let notifIds: string[] = [];
-    if (r.notification_ids) {
-      try {
-        notifIds = JSON.parse(r.notification_ids);
-      } catch {
-        notifIds = [];
-      }
-    }
-
     const modeRaw = r.reminder_mode;
     const mode: ReminderMode =
       modeRaw === 'custom' || modeRaw === 'disabled' ? modeRaw : 'default';
@@ -98,7 +51,7 @@ export async function getAllBirthdays(): Promise<BirthdayProfile[]> {
       customSameDayEnabled: r.custom_same_day_enabled !== 0,
       customSameDayHour: r.custom_same_day_hour ?? 6,
       customSameDayMinute: r.custom_same_day_minute ?? 0,
-      notificationIds: notifIds,
+      notificationIds: parseNotificationIds(r.notification_ids),
     };
 
     return {
@@ -194,7 +147,7 @@ export async function updateBirthday(id: string, input: CreateBirthdayInput): Pr
   const customSameDayHour = input.reminder?.customSameDayHour ?? 6;
   const customSameDayMinute = input.reminder?.customSameDayMinute ?? 0;
 
-  db.runSync(
+  const result = db.runSync(
     `UPDATE birthdays SET
       name = ?, birth_day = ?, birth_month = ?, birth_year = ?, notes = ?,
       reminder_mode = ?, custom_day_before_enabled = ?, custom_day_before_hour = ?, custom_day_before_minute = ?,
@@ -218,6 +171,8 @@ export async function updateBirthday(id: string, input: CreateBirthdayInput): Pr
       id,
     ]
   );
+
+  if (result.changes === 0) throw new Error('Cette fiche est introuvable.');
 
   return {
     id,
@@ -252,15 +207,6 @@ export async function deleteBirthday(id: string): Promise<string[]> {
     `SELECT notification_ids FROM birthdays WHERE id = ?`,
     [id]
   );
-  let oldNotifIds: string[] = [];
-  if (row && row.notification_ids) {
-    try {
-      oldNotifIds = JSON.parse(row.notification_ids);
-    } catch {
-      oldNotifIds = [];
-    }
-  }
-
   db.runSync(`DELETE FROM birthdays WHERE id = ?`, [id]);
-  return oldNotifIds;
+  return parseNotificationIds(row?.notification_ids);
 }

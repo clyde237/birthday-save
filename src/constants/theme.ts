@@ -1,24 +1,29 @@
 export const THEME = {
   colors: {
-    primary: '#AE1F4D', // Framboise signature
-    primaryLight: '#D4436E',
-    primaryDark: '#781233',
-    background: '#FFF9F0', // Nuance douce de l'ivoire
-    cardBackground: '#FFFFFF',
-    surface: '#FFF2DB', // Ivoire
-    textPrimary: '#33192C', // Prune profond
-    textSecondary: '#6B5E62',
-    accent: '#F18A87', // Corail
-    accentSubtle: '#FDECEB',
+    primary: '#B92554',
+    splash: '#AE1F4D',
+    reminderSurface: '#FCE9E2',
+    primaryLight: '#E6537C',
+    primaryDark: '#8D1740',
+    background: '#FDF1E9',
+    cardBackground: '#FFF7F1',
+    surface: '#F4E0EB',
+    textPrimary: '#42112F',
+    textSecondary: '#755265',
+    accent: '#F18A87',
+    accentSubtle: '#FCE8E6',
+    lavender: '#EBCDF0',
+    peach: '#FFD8B4',
     success: '#2E7D32',
     successBg: '#E8F5E9',
     warning: '#ED6C02',
     warningBg: '#FFF3E0',
     danger: '#D32F2F',
     dangerBg: '#FFEBEE',
-    border: '#E8DCCB',
-    borderLight: '#F3E9DD',
+    border: '#EED6D1',
+    borderLight: '#F1DDD7',
   },
+  screenTitle: { color: '#42112F', fontSize: 40, lineHeight: 48, fontWeight: '900' as const, letterSpacing: -1.15 },
   spacing: {
     xs: 4,
     sm: 8,

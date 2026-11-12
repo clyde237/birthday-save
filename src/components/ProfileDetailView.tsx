@@ -1,370 +1,199 @@
-import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-} from 'react-native';
-import { BirthdayProfile } from '../types';
+import React, { useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ArrowLeft, CalendarDays, ChevronDown, Pencil, Trash2 } from 'lucide-react-native';
+import type { BirthdayProfile, BirthdayReminderConfig, GlobalReminderSettings, ReminderMode } from '../types';
+import type { ReminderStatus } from '../services/reminderScheduler';
 import { THEME } from '../constants/theme';
-import {
-  getNextBirthdayDate,
-  calculateNextAge,
-  MONTH_NAMES_FR,
-  resolveEffectiveBirthday,
-  getNextReminderOccurrence,
-  formatFrenchDateTime,
-} from '../utils/dateUtils';
-import { getGlobalSettings } from '../database/settingsRepository';
+import { getNextBirthdayDate, calculateNextAge, getNextReminderOccurrence, MONTH_NAMES_FR } from '../utils/dateUtils';
+import { formatReminderTime, getEffectiveReminderSettings, getReminderRules, parseReminderTime, VARIABLE_REMINDER_YEARS } from '../utils/reminderRules';
+import { ReminderTimeInput } from './ReminderTimeInput';
 
-interface ProfileDetailViewProps {
+const MODES: Record<ReminderMode, string> = {
+  default: 'Réglages par défaut',
+  custom: 'Personnalisés',
+  disabled: 'Désactivés',
+};
+
+const STATUS_TEXT: Record<ReminderStatus, string> = {
+  scheduled: 'Rappels programmés.',
+  approximate: 'Rappels programmés. Android peut les livrer après l’heure choisie.',
+  blocked: 'Notifications bloquées. Vous pouvez les autoriser dans Paramètres.',
+  disabled: 'Aucun rappel actif.',
+  failed: 'Certains rappels n’ont pas pu être mis à jour. Réessayez dans Paramètres.',
+};
+
+interface Props {
   birthday: BirthdayProfile;
+  defaults: GlobalReminderSettings;
+  status?: ReminderStatus;
+  saving: boolean;
+  onSave: (reminder: BirthdayReminderConfig) => void;
   onEdit: () => void;
   onDelete: () => void;
   onGoBack: () => void;
 }
 
-export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
-  birthday,
-  onEdit,
-  onDelete,
-  onGoBack,
-}) => {
-  const { nextDate, daysRemaining, isToday } = getNextBirthdayDate(
-    birthday.birthMonth,
-    birthday.birthDay
-  );
-  const nextAge = calculateNextAge(birthday.birthYear, nextDate);
-  const currentYear = new Date().getFullYear();
-  const effective = resolveEffectiveBirthday(birthday.birthMonth, birthday.birthDay, currentYear);
-  const monthName = MONTH_NAMES_FR[birthday.birthMonth - 1];
-  const isFeb29Adjusted = birthday.birthMonth === 2 && birthday.birthDay === 29 && effective.day === 28;
+function shortDate(date: Date): string {
+  return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+}
 
-  const globalSettings = getGlobalSettings();
-  const mode = birthday.reminder?.mode ?? 'default';
+export function ProfileDetailView({ birthday, defaults, status, saving, onSave, onEdit, onDelete, onGoBack }: Props) {
+  const { reminder } = birthday;
+  const [draft, setDraft] = useState(reminder);
+  const [eveTime, setEveTime] = useState(formatReminderTime(reminder.customDayBeforeHour, reminder.customDayBeforeMinute));
+  const [dayTime, setDayTime] = useState(formatReminderTime(reminder.customSameDayHour, reminder.customSameDayMinute));
+  const [showModes, setShowModes] = useState(false);
+  const [error, setError] = useState('');
+  const { nextDate } = getNextBirthdayDate(birthday.birthMonth, birthday.birthDay);
+  const age = calculateNextAge(birthday.birthYear, nextDate);
 
-  // Calcul des prochaines notifications
-  const reminders: { label: string; date: string }[] = [];
+  const effective = getEffectiveReminderSettings(draft, defaults);
+  const rules = getReminderRules(effective);
+  const isLeapBirthday = birthday.birthMonth === 2 && birthday.birthDay === 29;
+  const variableReminders = rules.some(rule => rule.enabled && (
+    isLeapBirthday || (birthday.birthMonth === 3 && birthday.birthDay === 1 && rule.type === 'day_before')
+  ));
 
-  if (mode !== 'disabled') {
-    const isDefault = mode === 'default';
-
-    const dayBeforeActive = isDefault
-      ? globalSettings.dayBeforeEnabled
-      : birthday.reminder?.customDayBeforeEnabled;
-    const dayBeforeHour = isDefault
-      ? globalSettings.dayBeforeHour
-      : birthday.reminder?.customDayBeforeHour ?? 19;
-    const dayBeforeMinute = isDefault
-      ? globalSettings.dayBeforeMinute
-      : birthday.reminder?.customDayBeforeMinute ?? 0;
-
-    const sameDayActive = isDefault
-      ? globalSettings.sameDayEnabled
-      : birthday.reminder?.customSameDayEnabled;
-    const sameDayHour = isDefault
-      ? globalSettings.sameDayHour
-      : birthday.reminder?.customSameDayHour ?? 6;
-    const sameDayMinute = isDefault
-      ? globalSettings.sameDayMinute
-      : birthday.reminder?.customSameDayMinute ?? 0;
-
-    if (dayBeforeActive) {
-      const nextEve = getNextReminderOccurrence(
-        birthday.birthMonth,
-        birthday.birthDay,
-        'day_before',
-        dayBeforeHour,
-        dayBeforeMinute
-      );
-      reminders.push({
-        label: `⏳ La veille à ${dayBeforeHour}h${String(dayBeforeMinute).padStart(2, '0')}`,
-        date: formatFrenchDateTime(nextEve),
-      });
+  const save = () => {
+    const eve = draft.mode === 'custom' && draft.customDayBeforeEnabled
+      ? parseReminderTime(eveTime) : { hour: draft.customDayBeforeHour, minute: draft.customDayBeforeMinute };
+    const day = draft.mode === 'custom' && draft.customSameDayEnabled
+      ? parseReminderTime(dayTime) : { hour: draft.customSameDayHour, minute: draft.customSameDayMinute };
+    if (!eve || !day) {
+      setError('Saisissez un horaire entre 00:00 et 23:59.');
+      return;
     }
-
-    if (sameDayActive) {
-      const nextDay = getNextReminderOccurrence(
-        birthday.birthMonth,
-        birthday.birthDay,
-        'same_day',
-        sameDayHour,
-        sameDayMinute
-      );
-      reminders.push({
-        label: `🎉 Le jour même à ${sameDayHour}h${String(sameDayMinute).padStart(2, '0')}`,
-        date: formatFrenchDateTime(nextDay),
-      });
-    }
-  }
-
-  const modeLabels: Record<string, { emoji: string; text: string; color: string }> = {
-    default: { emoji: '🔔', text: 'Réglages par défaut', color: THEME.colors.primary },
-    custom: { emoji: '⚙', text: 'Personnalisés', color: '#0284C7' },
-    disabled: { emoji: '🔕', text: 'Désactivés', color: THEME.colors.textSecondary },
-  };
-  const modeInfo = modeLabels[mode] || modeLabels['default'];
-
-  const handleDeleteConfirm = () => {
-    Alert.alert(
-      'Supprimer la fiche ?',
-      `Êtes-vous sûr de vouloir supprimer l'anniversaire de ${birthday.name} ? Ses rappels programmés seront annulés.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: onDelete },
-      ]
-    );
+    setError('');
+    onSave({
+      ...draft,
+      customDayBeforeHour: eve.hour, customDayBeforeMinute: eve.minute,
+      customSameDayHour: day.hour, customSameDayMinute: day.minute,
+    });
   };
 
   return (
     <View style={styles.container}>
-      {/* Bouton retour */}
-      <TouchableOpacity style={styles.backBtn} onPress={onGoBack} activeOpacity={0.7}>
-        <Text style={styles.backBtnText}>◂ Retour</Text>
-      </TouchableOpacity>
-
-      {/* En-tête profil */}
-      <View style={styles.heroCard}>
-        <View style={styles.avatarLarge}>
-          <Text style={styles.avatarLargeText}>
-            {birthday.name.charAt(0).toUpperCase()}
-          </Text>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <View style={styles.toolbar}>
+          <TouchableOpacity style={styles.iconButton} onPress={onGoBack} accessibilityRole="button" accessibilityLabel="Retour">
+            <ArrowLeft size={23} color={THEME.colors.textPrimary} />
+          </TouchableOpacity>
+          <View style={styles.toolbarActions}>
+            <TouchableOpacity style={styles.iconButton} disabled={saving} onPress={onEdit} accessibilityRole="button" accessibilityLabel="Modifier la fiche">
+              <Pencil size={19} color={THEME.colors.textPrimary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconButton}
+              disabled={saving}
+              accessibilityRole="button"
+              accessibilityLabel="Supprimer la fiche"
+              onPress={() => Alert.alert('Supprimer l’anniversaire ?', birthday.name, [
+                { text: 'Annuler', style: 'cancel' },
+                { text: 'Supprimer', style: 'destructive', onPress: onDelete },
+              ])}
+            >
+              <Trash2 size={19} color={THEME.colors.danger} />
+            </TouchableOpacity>
+          </View>
+        </View>
+        <View style={styles.hero}>
+          <View style={styles.avatar}><Text style={styles.initial}>{Array.from(birthday.name)[0]?.toUpperCase()}</Text></View>
+          <View style={styles.copy}>
+            <Text accessibilityRole="header" style={styles.name}>{birthday.name}</Text>
+            <Text style={styles.date}>{birthday.birthDay} {MONTH_NAMES_FR[birthday.birthMonth - 1].toLowerCase()}{birthday.birthYear ? ` ${birthday.birthYear}` : ''}</Text>
+            {age !== null && <Text style={styles.secondary}>Fête ses {age} ans</Text>}
+          </View>
         </View>
 
-        <Text style={styles.heroName}>{birthday.name}</Text>
-
-        <Text style={styles.heroDate}>
-          {birthday.birthDay === 1 ? '1er' : birthday.birthDay} {monthName}
-          {birthday.birthYear ? ` ${birthday.birthYear}` : ''}
-        </Text>
-
-        {isFeb29Adjusted && (
-          <Text style={styles.feb29Note}>
-            📌 Fêté le 28 février cette année (année non bissextile)
-          </Text>
-        )}
-
-        <View style={styles.heroBadge}>
-          <Text style={styles.heroBadgeText}>
-            {isToday
-              ? '🎉 C\'est aujourd\'hui !'
-              : daysRemaining === 1
-              ? '⏳ C\'est demain !'
-              : `Dans ${daysRemaining} jours`}
-          </Text>
-        </View>
-
-        {nextAge !== null && (
-          <Text style={styles.ageInfo}>
-            Aura {nextAge} ans
-          </Text>
-        )}
-      </View>
-
-      {/* Mode de rappel */}
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Rappels</Text>
-        <View style={[styles.modePill, { borderColor: modeInfo.color }]}>
-          <Text style={[styles.modePillText, { color: modeInfo.color }]}>
-            {modeInfo.emoji} {modeInfo.text}
-          </Text>
-        </View>
-
-        {reminders.length > 0 ? (
-          reminders.map((r, idx) => (
-            <View key={idx} style={styles.reminderItem}>
-              <Text style={styles.reminderLabel}>{r.label}</Text>
-              <Text style={styles.reminderDate}>Prochain : {r.date}</Text>
-            </View>
-          ))
-        ) : mode === 'disabled' ? (
-          <Text style={styles.disabledText}>Aucun rappel programmé pour cette fiche.</Text>
-        ) : (
-          <Text style={styles.disabledText}>Aucun rappel actif.</Text>
-        )}
-      </View>
-
-      {/* Notes */}
-      {birthday.notes ? (
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Notes</Text>
-          <Text style={styles.notesText}>💡 {birthday.notes}</Text>
-        </View>
-      ) : null}
-
-      {/* Actions */}
-      <View style={styles.actionsRow}>
-        <TouchableOpacity style={styles.editBtn} onPress={onEdit} activeOpacity={0.8}>
-          <Text style={styles.editBtnText}>✎ Modifier</Text>
+        <Text accessibilityRole="header" style={styles.heading}>Rappels annuels</Text>
+        <TouchableOpacity
+          accessibilityRole="button" accessibilityLabel="Mode des rappels"
+          accessibilityState={{ expanded: showModes }} style={styles.mode}
+          onPress={() => setShowModes(value => !value)} disabled={saving}
+        >
+          <Text style={styles.modeText}>{MODES[draft.mode]}</Text>
+          <ChevronDown size={21} color={THEME.colors.textPrimary} />
         </TouchableOpacity>
+        {showModes && (Object.keys(MODES) as ReminderMode[]).map(mode => (
+          <TouchableOpacity
+            key={mode} style={styles.modeChoice} accessibilityRole="button"
+            accessibilityState={{ selected: draft.mode === mode }}
+            onPress={() => { setDraft(current => ({ ...current, mode })); setShowModes(false); }}
+          >
+            <Text style={styles.modeText}>{MODES[mode]}</Text>
+          </TouchableOpacity>
+        ))}
 
-        <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteConfirm} activeOpacity={0.8}>
-          <Text style={styles.deleteBtnText}>✕ Supprimer</Text>
+        {draft.mode !== 'disabled' && rules.map(rule => {
+          const isEve = rule.type === 'day_before';
+          const time = isEve ? eveTime : dayTime;
+          const parsed = draft.mode === 'custom' ? parseReminderTime(time) : rule;
+          const occurrence = rule.enabled && parsed
+            ? getNextReminderOccurrence(birthday.birthMonth, birthday.birthDay, rule.type, parsed.hour, parsed.minute)
+            : null;
+          return (
+            <View key={rule.type} style={styles.rule}>
+              <CalendarDays size={22} color={THEME.colors.textSecondary} />
+              <View style={styles.copy}>
+                <Text style={styles.ruleTitle}>{rule.label}</Text>
+                <Text style={styles.secondary}>
+                  {occurrence && parsed ? `${shortDate(occurrence)}${draft.mode === 'custom' ? '' : ` · ${formatReminderTime(parsed.hour, parsed.minute)}`}`
+                    : rule.enabled ? 'Horaire à vérifier' : 'Désactivé'}
+                </Text>
+              </View>
+              {draft.mode === 'custom' && rule.enabled && (
+                <ReminderTimeInput label={`Horaire · ${rule.label}`} value={time} onChange={isEve ? setEveTime : setDayTime} disabled={saving} />
+              )}
+              <Switch
+                accessibilityLabel={`Activer le rappel · ${rule.label}`}
+                value={rule.enabled}
+                disabled={draft.mode !== 'custom' || saving}
+                onValueChange={enabled => setDraft(current => isEve
+                  ? { ...current, customDayBeforeEnabled: enabled }
+                  : { ...current, customSameDayEnabled: enabled })}
+                trackColor={{ false: THEME.colors.border, true: THEME.colors.primary }}
+              />
+            </View>
+          );
+        })}
+        {isLeapBirthday && <Text style={styles.secondary}>Cet anniversaire est fêté le 28 février les années non bissextiles.</Text>}
+        {variableReminders && <Text style={styles.secondary}>Les rappels dont la date varie sont programmés pour {VARIABLE_REMINDER_YEARS} ans et renouvelés à l’ouverture de l’application.</Text>}
+        {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+        {status && <Text accessibilityLiveRegion="polite" style={styles.secondary}>{STATUS_TEXT[status]}</Text>}
+        {birthday.notes && <View style={styles.notes}><Text style={styles.ruleTitle}>Note</Text><Text style={styles.secondary}>{birthday.notes}</Text></View>}
+      </ScrollView>
+
+      <View style={styles.footer}>
+        <TouchableOpacity style={styles.save} accessibilityRole="button" disabled={saving} onPress={save}>
+          <Text style={styles.saveText}>{saving ? 'Enregistrement…' : 'Enregistrer'}</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: THEME.spacing.lg,
-    marginTop: THEME.spacing.sm,
-  },
-  backBtn: {
-    alignSelf: 'flex-start',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    backgroundColor: THEME.colors.surface,
-    borderRadius: THEME.borderRadius.md,
-    marginBottom: THEME.spacing.md,
-  },
-  backBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: THEME.colors.primary,
-  },
-  heroCard: {
-    backgroundColor: THEME.colors.cardBackground,
-    borderRadius: THEME.borderRadius.lg,
-    padding: THEME.spacing.xl,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
-    marginBottom: THEME.spacing.md,
-  },
-  avatarLarge: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: THEME.colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: THEME.colors.primary,
-    marginBottom: THEME.spacing.md,
-  },
-  avatarLargeText: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: THEME.colors.primary,
-  },
-  heroName: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: THEME.colors.textPrimary,
-    marginBottom: 4,
-  },
-  heroDate: {
-    fontSize: 14,
-    color: THEME.colors.textSecondary,
-    marginBottom: 6,
-  },
-  feb29Note: {
-    fontSize: 11,
-    color: THEME.colors.warning,
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  heroBadge: {
-    backgroundColor: THEME.colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: THEME.borderRadius.round,
-    marginBottom: 4,
-  },
-  heroBadgeText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  ageInfo: {
-    fontSize: 13,
-    color: THEME.colors.textSecondary,
-    marginTop: 4,
-  },
-  sectionCard: {
-    backgroundColor: THEME.colors.cardBackground,
-    borderRadius: THEME.borderRadius.md,
-    padding: THEME.spacing.md,
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
-    marginBottom: THEME.spacing.md,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: THEME.colors.textPrimary,
-    marginBottom: 8,
-  },
-  modePill: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: THEME.borderRadius.round,
-    marginBottom: 8,
-  },
-  modePillText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  reminderItem: {
-    backgroundColor: THEME.colors.surface,
-    padding: 8,
-    borderRadius: THEME.borderRadius.sm,
-    marginBottom: 6,
-  },
-  reminderLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-  },
-  reminderDate: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-    marginTop: 2,
-  },
-  disabledText: {
-    fontSize: 12,
-    color: THEME.colors.textSecondary,
-    fontStyle: 'italic',
-  },
-  notesText: {
-    fontSize: 13,
-    color: THEME.colors.textPrimary,
-    fontStyle: 'italic',
-    lineHeight: 18,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: THEME.spacing.md,
-    marginBottom: THEME.spacing.xl,
-  },
-  editBtn: {
-    flex: 1,
-    backgroundColor: THEME.colors.primary,
-    paddingVertical: 12,
-    borderRadius: THEME.borderRadius.md,
-    alignItems: 'center',
-  },
-  editBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  deleteBtn: {
-    flex: 1,
-    backgroundColor: THEME.colors.dangerBg,
-    paddingVertical: 12,
-    borderRadius: THEME.borderRadius.md,
-    alignItems: 'center',
-  },
-  deleteBtnText: {
-    color: THEME.colors.danger,
-    fontWeight: '700',
-    fontSize: 14,
-  },
+  container: { flex: 1 },
+  content: { padding: 20, gap: 12 },
+  toolbar: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  toolbarActions: { flexDirection: 'row', gap: 8 },
+  iconButton: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: THEME.colors.surface },
+  hero: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 },
+  avatar: { width: 78, height: 78, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: THEME.colors.lavender },
+  initial: { color: THEME.colors.textPrimary, fontSize: 34, fontWeight: '800' },
+  copy: { flex: 1 },
+  name: { color: THEME.colors.textPrimary, fontSize: 34, fontWeight: '800', letterSpacing: -0.8 },
+  date: { color: THEME.colors.textPrimary, fontSize: 18 },
+  secondary: { color: THEME.colors.textSecondary, fontSize: 14, lineHeight: 20 },
+  heading: { color: THEME.colors.textPrimary, fontSize: 25, fontWeight: '800', letterSpacing: -0.4 },
+  mode: { minHeight: 50, paddingHorizontal: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderRadius: 14, borderWidth: 1, borderColor: THEME.colors.border, backgroundColor: THEME.colors.surface },
+  modeChoice: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 12, backgroundColor: THEME.colors.cardBackground },
+  modeText: { color: THEME.colors.textPrimary, fontSize: 16, fontWeight: '700' },
+  rule: { minHeight: 70, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 16, borderWidth: 1, borderColor: THEME.colors.border, backgroundColor: THEME.colors.cardBackground },
+  ruleTitle: { color: THEME.colors.textPrimary, fontSize: 16, fontWeight: '800' },
+  notes: { gap: 4, paddingVertical: 6 },
+  error: { color: THEME.colors.danger, fontSize: 14 },
+  footer: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, backgroundColor: THEME.colors.background },
+  save: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: THEME.colors.primary },
+  saveText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
 });

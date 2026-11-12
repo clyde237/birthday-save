@@ -56,4 +56,6 @@ export interface PermissionReport {
   granted: boolean;
   canAskAgain: boolean;
   androidImportance?: number;
+  exactAlarms?: boolean;
+  channelBlocked?: boolean;
 }

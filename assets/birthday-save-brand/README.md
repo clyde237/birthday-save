@@ -9,13 +9,17 @@ Décompresser l’archive à la racine du projet pour obtenir le dossier `assets
 | Icône iOS teintée par le système | `expo/ios-tinted-1024.png` | 1024 × 1024, niveaux de gris opaques |
 | Android adaptatif | `expo/android-foreground-1024.png` | 1024 × 1024, premier plan transparent. Utiliser le fond `#AE1F4D` |
 | Android avec thème système | `expo/android-monochrome-1024.png` | 1024 × 1024, masque blanc transparent |
-| Splash screen | `expo/splash-1024.png` | 1024 × 1024, logo transparent pour fond framboise ou prune |
+| Splash screen | `expo/splash-screen-1024.png` | 1024 × 1024, logo et nom transparents pour fond framboise |
 | Notification Android | `expo/notification-96.png` | 96 × 96, symbole blanc transparent |
 | Fiche Google Play | `stores/google-play-512.png` | 512 × 512, PNG RGBA à fond framboise opaque |
 | Lanceur Android natif classique | `android-legacy/mipmap-*/ic_launcher.png` | 48, 72, 96, 144 et 192 px selon la densité |
 | Logo dans l’interface | `logo/bs-*-<taille>.png` | 64, 128, 256 et 1024 px, fond transparent |
 
 Pour l’interface, utiliser `fond-clair` sur une surface claire et `fond-sombre` sur une surface sombre. Les versions `monochrome-blanc` et `monochrome-noir` sont disponibles en une seule couleur. Palette principale · framboise `#AE1F4D`, ivoire `#FFF2DB`, corail `#F18A87` et prune `#33192C`.
+
+L’illustration `illustrations/birthday-cake.png`, extraite de `maquette_finale.png`, est utilisée sur la carte de l’anniversaire à venir.
+
+Le splash natif et son relais React Native affichent le monogramme et le nom de la marque depuis `expo/splash-screen-1024.png`, sur fond framboise `#B12552`.
 
 ## Configuration Expo
 
@@ -43,13 +47,9 @@ Fusionner ces clés avec celles de l’`app.json` du projet. Avec un projet Expo
       [
         "expo-splash-screen",
         {
-          "image": "./assets/birthday-save-brand/expo/splash-1024.png",
-          "backgroundColor": "#AE1F4D",
-          "dark": {
-            "backgroundColor": "#33192C",
-            "image": "./assets/birthday-save-brand/expo/splash-1024.png"
-          },
-          "imageWidth": 200,
+          "image": "./assets/birthday-save-brand/expo/splash-screen-1024.png",
+          "backgroundColor": "#B12552",
+          "imageWidth": 320,
           "resizeMode": "contain"
         }
       ],
@@ -65,7 +65,7 @@ Fusionner ces clés avec celles de l’`app.json` du projet. Avec un projet Expo
 }
 ```
 
-Les deux plugins doivent être présents dans le projet. Vérifier l’icône et le splash sur une compilation de l’application. Le splash natif utilise le monogramme seul. Le nom BIRTHDAY-SAVE sous le logo peut être affiché par l’écran de lancement React Native de la maquette.
+Les deux plugins doivent être présents dans le projet. Vérifier l’icône et le splash sur une compilation de l’application.
 
 ## Références
 

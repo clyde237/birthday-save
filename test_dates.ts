@@ -1,3 +1,5 @@
+import { parseReminderTime, planBirthdayReminders } from './src/utils/reminderRules';
+import type { BirthdayProfile, GlobalReminderSettings } from './src/types';
 import {
   isLeapYear,
   calculateEveDate,
@@ -78,3 +80,38 @@ function runAssertions() {
 }
 
 runAssertions();
+
+
+const defaults: GlobalReminderSettings = {
+  dayBeforeEnabled: true, dayBeforeHour: 19, dayBeforeMinute: 0,
+  sameDayEnabled: true, sameDayHour: 6, sameDayMinute: 0,
+};
+const birthday: BirthdayProfile = {
+  id: 'birthday', name: 'Maman', birthDay: 29, birthMonth: 2,
+  reminder: {
+    mode: 'default',
+    customDayBeforeEnabled: false, customDayBeforeHour: 19, customDayBeforeMinute: 0,
+    customSameDayEnabled: true, customSameDayHour: 0, customSameDayMinute: 30,
+  },
+};
+const plans = planBirthdayReminders(birthday, defaults, new Date(2027, 1, 28, 12));
+const occurrences = plans.filter(plan => plan.type === 'same_day');
+if (occurrences.length !== 5 || occurrences.some(plan => plan.yearly) ||
+    occurrences[0]?.occurrence.getDate() !== 29 || occurrences[1]?.occurrence.getDate() !== 28) {
+  throw new Error('La récurrence du 29 février doit alterner selon l’année.');
+}
+const march = planBirthdayReminders({ ...birthday, birthDay: 1, birthMonth: 3 }, defaults, new Date(2027, 0, 1));
+const eves = march.filter(plan => plan.type === 'day_before');
+if (eves[0]?.occurrence.getDate() !== 28 || eves[1]?.occurrence.getDate() !== 29 ||
+    !march.find(plan => plan.type === 'same_day')?.yearly) {
+  throw new Error('Seule la veille du 1er mars dépend de l’année.');
+}
+const custom = planBirthdayReminders({
+  ...birthday, birthDay: 2,
+  reminder: { ...birthday.reminder, mode: 'custom' },
+}, defaults, new Date(2027, 0, 1));
+if (custom.length !== 1 || custom[0].hour !== 0 || custom[0].minute !== 30 ||
+    parseReminderTime('00:30')?.hour !== 0 || parseReminderTime('25:00') !== null) {
+  throw new Error('Le réglage personnalisé à minuit doit être conservé.');
+}
+console.log('Planification des dates variables et des heures à minuit vérifiée.');
