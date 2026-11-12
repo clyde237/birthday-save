@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Birthday-save",
+    "slug": "birthday-save",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/birthday-save-brand/expo/icon-1024.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "icon": {
+        "light": "./assets/birthday-save-brand/expo/icon-1024.png",
+        "dark": "./assets/birthday-save-brand/expo/ios-dark-1024.png",
+        "tinted": "./assets/birthday-save-brand/expo/ios-tinted-1024.png"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/birthday-save-brand/expo/android-foreground-1024.png",
+        "backgroundColor": "#AE1F4D",
+        "monochromeImage": "./assets/birthday-save-brand/expo/android-monochrome-1024.png"
+      },
+      "package": "com.birthdaysave.app",
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/birthday-save-brand/expo/notification-96.png",
+          "color": "#AE1F4D"
+        }
+      ],
+      "expo-sqlite"
+    ],
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
