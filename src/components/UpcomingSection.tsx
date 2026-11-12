@@ -3,8 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { BirthdayProfile } from '../types';
 import { THEME } from '../constants/theme';
 import {
-  getNextBirthdayDate,
-  calculateNextAge,
+  getSortedUpcomingBirthdays,
   MONTH_NAMES_FR,
   resolveEffectiveBirthday,
 } from '../utils/dateUtils';
@@ -20,14 +19,7 @@ export const UpcomingSection: React.FC<UpcomingSectionProps> = ({
   onOpenProfile,
   onAddNew,
 }) => {
-  // Trier par jours restants croissants (Aujourd'hui en premier)
-  const sorted = [...birthdays]
-    .map((b) => {
-      const next = getNextBirthdayDate(b.birthMonth, b.birthDay);
-      const nextAge = calculateNextAge(b.birthYear, next.nextDate);
-      return { ...b, next, nextAge };
-    })
-    .sort((a, b) => a.next.daysRemaining - b.next.daysRemaining);
+  const sorted = getSortedUpcomingBirthdays(birthdays);
 
   const getBadgeStyle = (daysRemaining: number, isToday: boolean) => {
     if (isToday) return { bg: THEME.colors.primary, text: '#FFFFFF' };

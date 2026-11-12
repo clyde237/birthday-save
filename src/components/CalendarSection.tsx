@@ -5,7 +5,7 @@ import { THEME } from '../constants/theme';
 import {
   MONTH_NAMES_FR,
   getDaysInMonth,
-  resolveEffectiveBirthday,
+  getBirthdaysByCalendarDay,
   calculateNextAge,
 } from '../utils/dateUtils';
 
@@ -25,21 +25,10 @@ export const CalendarSection: React.FC<CalendarSectionProps> = ({
   const [displayMonth, setDisplayMonth] = useState(today.getMonth() + 1); // 1-indexed
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
-  // Construire un index des anniversaires pour le mois affiché
-  const birthdaysByDay = useMemo(() => {
-    const map = new Map<number, BirthdayProfile[]>();
-
-    for (const b of birthdays) {
-      const eff = resolveEffectiveBirthday(b.birthMonth, b.birthDay, displayYear);
-      if (eff.month === displayMonth) {
-        const list = map.get(eff.day) || [];
-        list.push(b);
-        map.set(eff.day, list);
-      }
-    }
-
-    return map;
-  }, [birthdays, displayYear, displayMonth]);
+  const birthdaysByDay = useMemo(
+    () => getBirthdaysByCalendarDay(birthdays, displayMonth, displayYear),
+    [birthdays, displayMonth, displayYear]
+  );
 
   // Profils pour le jour sélectionné
   const selectedProfiles = selectedDay ? birthdaysByDay.get(selectedDay) || [] : [];

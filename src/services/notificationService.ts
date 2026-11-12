@@ -154,7 +154,8 @@ export async function scheduleYearlyReminder(
   type: ReminderType,
   hour: number,
   minute: number,
-  delivery: 'bestEffort' | 'alarmClock' = 'bestEffort'
+  delivery: 'bestEffort' | 'alarmClock' = 'bestEffort',
+  profileId?: string
 ): Promise<string> {
   const currentYear = new Date().getFullYear();
   let targetDay = birthDay;
@@ -188,6 +189,7 @@ export async function scheduleYearlyReminder(
       priority: Notifications.AndroidNotificationPriority.MAX,
       data: {
         profileName,
+        ...(profileId ? { profileId } : {}),
         birthMonth,
         birthDay,
         reminderType: type,

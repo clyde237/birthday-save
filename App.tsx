@@ -81,6 +81,7 @@ function MainApp() {
 
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
+  const handledNotificationResponse = useRef<string | null>(null);
 
   const addLog = useCallback((type: NotificationLogItem['type'], title: string, details: string) => {
     const newLog: NotificationLogItem = {
@@ -124,6 +125,64 @@ function MainApp() {
     }
   }, [addLog, selectedProfile]);
 
+  const handleNotificationResponse = useCallback(async (response: Notifications.NotificationResponse) => {
+    const responseKey = `${response.notification.request.identifier}:${response.actionIdentifier}:${response.notification.date}`;
+    if (handledNotificationResponse.current === responseKey) return;
+    handledNotificationResponse.current = responseKey;
+
+    const title = response.notification.request.content.title || 'Clic notification';
+    const data = response.notification.request.content.data as Record<string, unknown> | undefined;
+    addLog('response', `Ouverture : ${title}`, `L'utilisateur a cliqué sur la notification. Données : ${JSON.stringify(data || {})}`);
+
+    const profileId = typeof data?.profileId === 'string' ? data.profileId : undefined;
+    const profileName = typeof data?.profileName === 'string' ? data.profileName : undefined;
+    let destination: BirthdayProfile | null | undefined;
+    let hasAmbiguousName = false;
+
+    if (profileId || profileName) {
+      try {
+        const profiles = await getAllBirthdays();
+        const matches = profileId
+          ? profiles.filter((profile) => profile.id === profileId)
+          : profiles.filter((profile) => profile.name === profileName);
+
+        if (matches.length === 1) {
+          destination = matches[0];
+        } else {
+          destination = null;
+          hasAmbiguousName = matches.length > 1;
+        }
+      } catch (err: any) {
+        addLog('error', 'Erreur ouverture notification', err?.message || String(err));
+      }
+    }
+
+    await refreshState();
+    if (destination !== undefined) {
+      if (destination) {
+        setSelectedProfile(destination);
+        setViewMode('profile');
+      } else {
+        setActiveTab('upcoming');
+        setViewMode('tabs');
+        setSelectedProfile(null);
+        addLog(
+          'cancelled',
+          hasAmbiguousName ? 'Fiche ambiguë' : 'Fiche introuvable',
+          hasAmbiguousName
+            ? `Plusieurs fiches portent le nom "${profileName}". Redirection vers À venir.`
+            : `Le profil "${profileName ?? profileId}" a été supprimé. Redirection vers À venir.`
+        );
+      }
+    }
+
+    try {
+      await Notifications.clearLastNotificationResponseAsync();
+    } catch (err: any) {
+      addLog('error', 'Erreur nettoyage notification', err?.message || String(err));
+    }
+  }, [addLog, refreshState]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -132,6 +191,16 @@ function MainApp() {
         await setupNotificationChannel();
       } catch (err) {
         console.warn('Init channel:', err);
+      }
+      if (isMounted) {
+        try {
+          const lastResponse = await Notifications.getLastNotificationResponseAsync();
+          if (lastResponse && isMounted) {
+            await handleNotificationResponse(lastResponse);
+          }
+        } catch (err: any) {
+          addLog('error', 'Erreur lecture dernière notification', err?.message || String(err));
+        }
       }
       if (isMounted) {
         await refreshState();
@@ -150,33 +219,7 @@ function MainApp() {
 
     // Écouteur de clic sur notification → Deep-link vers la fiche
     responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      const title = response.notification.request.content.title || 'Clic notification';
-      const data = response.notification.request.content.data as Record<string, any> | undefined;
-      const dataStr = JSON.stringify(data || {});
-      addLog('response', `Ouverture : ${title}`, `L'utilisateur a cliqué sur la notification. Données : ${dataStr}`);
-
-      // Deep-link : ouvrir le profil si l'on peut identifier le nom
-      if (data?.profileName) {
-        // Chercher le profil dans les données courantes
-        getAllBirthdays().then((bdays) => {
-          const match = bdays.find(
-            (b) => b.name === data.profileName
-          );
-
-          if (match) {
-            setSelectedProfile(match);
-            setViewMode('profile');
-          } else {
-            // Profil supprimé → rediriger vers À venir (PRD rule)
-            setActiveTab('upcoming');
-            setViewMode('tabs');
-            setSelectedProfile(null);
-            addLog('cancelled', 'Fiche introuvable', `Le profil "${data.profileName}" a été supprimé. Redirection vers À venir.`);
-          }
-        });
-      }
-
-      refreshState();
+      void handleNotificationResponse(response);
     });
 
     return () => {
@@ -188,7 +231,7 @@ function MainApp() {
         responseListener.current.remove();
       }
     };
-  }, [addLog, refreshState]);
+  }, [addLog, handleNotificationResponse, refreshState]);
 
   const handlePullRefresh = async () => {
     setRefreshing(true);
@@ -503,10 +546,12 @@ function MainApp() {
               </>
             )}
 
-            <EventLogSection
-              logs={logs}
-              onClearLogs={() => setLogs([])}
-            />
+            {activeTab !== 'upcoming' && (
+              <EventLogSection
+                logs={logs}
+                onClearLogs={() => setLogs([])}
+              />
+            )}
           </ScrollView>
         </>
       )}

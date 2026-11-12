@@ -75,7 +75,8 @@ export async function syncRemindersForBirthday(
         'day_before',
         dayBeforeHour,
         dayBeforeMinute,
-        'bestEffort'
+        'bestEffort',
+        profile.id
       );
       newNotifIds.push(idEve);
     } catch (err) {
@@ -93,7 +94,8 @@ export async function syncRemindersForBirthday(
         'same_day',
         sameDayHour,
         sameDayMinute,
-        'bestEffort'
+        'bestEffort',
+        profile.id
       );
       newNotifIds.push(idDay);
     } catch (err) {

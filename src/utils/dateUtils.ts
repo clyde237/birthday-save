@@ -1,3 +1,5 @@
+import type { BirthdayProfile } from '../types';
+
 /**
  * Fonctions pures et déterministes de calcul des dates d'anniversaire et des rappels.
  * Respecte strictement les règles du PRD :
@@ -13,6 +15,43 @@ export const MONTH_NAMES_FR = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
 ];
+
+export interface UpcomingBirthday extends BirthdayProfile {
+  next: ReturnType<typeof getNextBirthdayDate>;
+  nextAge: number | null;
+}
+
+export function getSortedUpcomingBirthdays(
+  birthdays: readonly BirthdayProfile[],
+  referenceDate: Date = new Date()
+): UpcomingBirthday[] {
+  return birthdays
+    .map((birthday) => {
+      const next = getNextBirthdayDate(birthday.birthMonth, birthday.birthDay, referenceDate);
+      const nextAge = calculateNextAge(birthday.birthYear, next.nextDate);
+      return { ...birthday, next, nextAge };
+    })
+    .sort((a, b) => a.next.daysRemaining - b.next.daysRemaining);
+}
+
+export function getBirthdaysByCalendarDay(
+  birthdays: readonly BirthdayProfile[],
+  month: number,
+  year: number
+): Map<number, BirthdayProfile[]> {
+  const birthdaysByDay = new Map<number, BirthdayProfile[]>();
+
+  for (const birthday of birthdays) {
+    const effectiveDate = resolveEffectiveBirthday(birthday.birthMonth, birthday.birthDay, year);
+    if (effectiveDate.month === month) {
+      const profiles = birthdaysByDay.get(effectiveDate.day) ?? [];
+      profiles.push(birthday);
+      birthdaysByDay.set(effectiveDate.day, profiles);
+    }
+  }
+
+  return birthdaysByDay;
+}
 
 export function isLeapYear(year: number): boolean {
   return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
