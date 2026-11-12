@@ -33,28 +33,11 @@ export interface BirthdayProfile {
   reminder: BirthdayReminderConfig;
 }
 
-export interface ScheduledNotificationInfo {
-  id: string;
-  title: string | null;
-  body: string | null;
-  triggerType: string;
-  triggerDetails: string;
-  nextTriggerDate?: string;
-  rawTrigger: Notifications.NotificationTrigger;
-}
-
-export interface NotificationLogItem {
-  id: string;
-  timestamp: string;
-  type: 'scheduled' | 'received' | 'response' | 'cancelled' | 'error';
-  title: string;
-  details: string;
-}
-
 export interface PermissionReport {
   status: Notifications.PermissionStatus;
   granted: boolean;
   canAskAgain: boolean;
+  isExpoGo?: boolean;
   androidImportance?: number;
   exactAlarms?: boolean;
   channelBlocked?: boolean;

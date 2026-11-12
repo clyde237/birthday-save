@@ -4,6 +4,7 @@ import {
   AppState,
   BackHandler,
   Linking,
+  Platform,
   StyleSheet,
   Alert,
   RefreshControl,
@@ -15,12 +16,10 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
+import { isRunningInExpoGo } from 'expo';
+import Constants from 'expo-constants';
 import { CalendarDays, CalendarRange, Plus, Settings2 } from 'lucide-react-native';
-import { PermissionCard } from './src/components/PermissionCard';
-import { QuickTestSection } from './src/components/QuickTestSection';
-import { ScheduledListSection } from './src/components/ScheduledListSection';
-import { EventLogSection } from './src/components/EventLogSection';
-import { ValidationGuide } from './src/components/ValidationGuide';
+import { NotificationDiagnosticsSection } from './src/components/NotificationDiagnosticsSection';
 import { GlobalSettingsSection } from './src/components/GlobalSettingsSection';
 import { UpcomingSection } from './src/components/UpcomingSection';
 import { CalendarSection } from './src/components/CalendarSection';
@@ -30,8 +29,6 @@ import { LaunchScreen } from './src/components/LaunchScreen';
 import { THEME } from './src/constants/theme';
 import {
   PermissionReport,
-  ScheduledNotificationInfo,
-  NotificationLogItem,
   BirthdayProfile,
   GlobalReminderSettings,
 } from './src/types';
@@ -39,12 +36,7 @@ import {
   setupNotificationChannel,
   getNotificationPermissions,
   requestNotificationPermissions,
-  triggerImmediateNotification,
-  scheduleShortTermReminder,
-  scheduleYearlyReminder,
-  scheduleMamanReferenceScenario,
-  getScheduledNotificationsList,
-  cancelNotification,
+  sendNotificationCheck,
 } from './src/services/notificationService';
 import {
   getAllBirthdays,
@@ -60,13 +52,35 @@ import { getEffectiveReminderSettings, getReminderRules } from './src/utils/remi
 // Keep the native surface in place until the branded React Native screen is painted.
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
-type ActiveTab = 'upcoming' | 'calendar' | 'settings' | 'testbench';
+type ActiveTab = 'upcoming' | 'calendar' | 'settings' | 'diagnostics';
 
 const TABS = [
   { key: 'upcoming', label: 'À venir', Icon: CalendarDays },
   { key: 'calendar', label: 'Calendrier', Icon: CalendarRange },
   { key: 'settings', label: 'Paramètres', Icon: Settings2 },
 ] as const;
+
+async function openAndroidNotificationSettings() {
+  if (isRunningInExpoGo()) {
+    await Linking.openSettings();
+    return;
+  }
+
+  const packageName = Constants.expoConfig?.android?.package;
+  if (!packageName) throw new Error('Identifiant Android de l’application indisponible.');
+
+  try {
+    await Linking.sendIntent('android.settings.APP_NOTIFICATION_SETTINGS', [
+      { key: 'android.provider.extra.APP_PACKAGE', value: packageName },
+    ]);
+  } catch (intentError) {
+    try {
+      await Linking.openSettings();
+    } catch (settingsError) {
+      throw new Error(`Ouverture des réglages impossible : ${String(intentError)} ${String(settingsError)}`);
+    }
+  }
+}
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('upcoming');
@@ -80,10 +94,9 @@ function MainApp() {
   const [launchShown, setLaunchShown] = useState(false);
   const markLaunchShown = useCallback(() => setLaunchShown(true), []);
   const [syncFailed, setSyncFailed] = useState(false);
-  const [scheduledList, setScheduledList] = useState<ScheduledNotificationInfo[]>([]);
-  const [logs, setLogs] = useState<NotificationLogItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sendingNotificationCheck, setSendingNotificationCheck] = useState(false);
   const [formModalVisible, setFormModalVisible] = useState(false);
   const [editingBirthday, setEditingBirthday] = useState<BirthdayProfile | null>(null);
 
@@ -98,21 +111,6 @@ function MainApp() {
     selectedReminder?.customDayBeforeEnabled, selectedReminder?.customDayBeforeHour, selectedReminder?.customDayBeforeMinute,
     selectedReminder?.customSameDayEnabled, selectedReminder?.customSameDayHour, selectedReminder?.customSameDayMinute,
   ]);
-
-  const addLog = useCallback((type: NotificationLogItem['type'], title: string, details: string) => {
-    const newLog: NotificationLogItem = {
-      id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      timestamp: new Date().toLocaleTimeString('fr-FR', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      }),
-      type,
-      title,
-      details,
-    };
-    setLogs((prev) => [newLog, ...prev.slice(0, 49)]);
-  }, []);
 
   const refreshState = useCallback(async (removedIds: readonly string[] = []) => {
     const version = ++refreshVersion.current;
@@ -138,11 +136,9 @@ function MainApp() {
       const nextPermission = await getNotificationPermissions();
       if (version === refreshVersion.current) setPermission(nextPermission);
       const statuses = await reconcileBirthdayReminders(removedIds);
-      const diagnosticList = __DEV__ ? await getScheduledNotificationsList(true) : [];
       if (version === refreshVersion.current) {
         setReminderStatuses(statuses);
         setSyncFailed(false);
-        setScheduledList(diagnosticList);
       }
       return true;
     } catch {
@@ -171,10 +167,10 @@ function MainApp() {
       }
       await Notifications.clearLastNotificationResponseAsync();
     } catch {
-      addLog('error', 'Ouverture de la notification', 'La fiche n’a pas pu être ouverte.');
+      Alert.alert('Ouverture impossible', 'Cette fiche anniversaire n’est plus disponible.');
     }
     await refreshState();
-  }, [addLog, refreshState]);
+  }, [refreshState]);
 
   useEffect(() => {
     let mounted = true;
@@ -184,10 +180,6 @@ function MainApp() {
     const stateListener = AppState.addEventListener('change', state => {
       if (state === 'active' && !mutationInProgress.current) void refreshState();
     });
-    const notificationListener = __DEV__ ? Notifications.addNotificationReceivedListener(notification => {
-      addLog('received', notification.request.content.title ?? 'Notification reçue', 'Reçue au premier plan.');
-    }) : undefined;
-
     void refreshState();
     void Notifications.getLastNotificationResponseAsync()
       .then(response => {
@@ -199,12 +191,11 @@ function MainApp() {
       refreshVersion.current++;
       responseListener.remove();
       stateListener.remove();
-      notificationListener?.remove();
     };
-  }, [addLog, handleNotificationResponse, refreshState]);
+  }, [handleNotificationResponse, refreshState]);
 
   useEffect(() => {
-    if (!selectedProfileId && activeTab !== 'testbench') return;
+    if (!selectedProfileId && activeTab !== 'diagnostics') return;
     const listener = BackHandler.addEventListener('hardwareBackPress', () => {
       if (selectedProfileId) setSelectedProfileId(null);
       else setActiveTab('settings');
@@ -222,11 +213,28 @@ function MainApp() {
   const handleRequestPermission = async () => {
     try {
       const current = await getNotificationPermissions();
-      if (!current.canAskAgain && !current.granted) await Linking.openSettings();
-      else await requestNotificationPermissions();
+      if (current.granted) {
+        await refreshState();
+        return;
+      }
+
+      if (Platform.OS === 'android' && (!current.canAskAgain || current.channelBlocked)) {
+        await openAndroidNotificationSettings();
+      } else if (Platform.OS === 'ios' && !current.canAskAgain) {
+        await Linking.openSettings();
+      } else {
+        const requested = await requestNotificationPermissions();
+        if (Platform.OS === 'android' && !requested.granted && !requested.canAskAgain) {
+          await openAndroidNotificationSettings();
+        }
+      }
       await refreshState();
-    } catch {
-      Alert.alert('Notifications', 'Impossible d’ouvrir les réglages de notification.');
+    } catch (error) {
+      console.warn('Ouverture des réglages de notification impossible :', error);
+      Alert.alert(
+        'Réglages des notifications',
+        'Ouvrez les paramètres Android, puis Applications > Birthday-save > Notifications pour autoriser les alertes.'
+      );
     }
   };
 
@@ -234,106 +242,35 @@ function MainApp() {
     try {
       await Notifications.requestExactAlarmPermissionsAsync();
       await refreshState();
-    } catch {
-      Alert.alert('Alarmes exactes', 'Impossible d’ouvrir les réglages des alarmes sur cet appareil.');
-    }
-  };
-
-  // ----- Handlers du banc d'essai -----
-
-  const handleImmediateTest = async () => {
-    try {
-      const id = await triggerImmediateNotification();
-      addLog('scheduled', 'Test immédiat déclenché', `Notification envoyée (ID: ${id})`);
-    } catch (err: any) {
-      addLog('error', 'Erreur test immédiat', err?.message || String(err));
-    }
-  };
-
-  const handleScheduleShortTerm = async (seconds: number) => {
-    try {
-      const id = await scheduleShortTermReminder(
-        seconds,
-        `🎂 Test court terme (${seconds}s)`,
-        `Rappel reçu avec succès ! (Écran verrouillé / hors ligne testé)`
-      );
-      addLog('scheduled', `Rappel ${seconds}s programmé`, `ID: ${id}. Prévu dans ${seconds}s. Verrouillez l'écran !`);
-      await refreshState();
+    } catch (error) {
+      console.warn('Ouverture des réglages des alarmes exactes impossible :', error);
       Alert.alert(
-        'Rappel programmé !',
-        `Notification prévue dans ${seconds} secondes.\n\n👉 Vous pouvez maintenant verrouiller votre écran ou passer en mode avion pour valider la réception.`
+        'Alarmes exactes',
+        'Ouvrez les paramètres Android, puis Applications > Birthday-save > Alarmes et rappels pour autoriser les alarmes exactes.'
       );
-    } catch (err: any) {
-      addLog('error', `Erreur programmation ${seconds}s`, err?.message || String(err));
     }
   };
 
-  const handleScheduleMamanScenario = async () => {
+  const handleSendNotificationCheck = async () => {
+    setSendingNotificationCheck(true);
     try {
-      const { idEve, idDay } = await scheduleMamanReferenceScenario();
-      addLog('scheduled', 'Scénario Maman programmé', `2 rappels créés. Veille: ${idEve} (1er fév à 19h), Jour J: ${idDay} (2 fév à 06h).`);
-      await refreshState();
+      const current = await getNotificationPermissions();
+      if (!current.granted) {
+        Alert.alert('Notifications désactivées', 'Autorisez les notifications avant d’envoyer une vérification.');
+        return;
+      }
+      await sendNotificationCheck();
       Alert.alert(
-        'Scénario de référence validé',
-        '2 déclencheurs annuels ont été programmés dans Android :\n\n• 1er février à 19h00 (la veille)\n• 2 février à 06h00 (le jour même)\n\nIls se déclencheront chaque année automatiquement.'
+        'Vérification envoyée',
+        'Une notification Birthday-save devrait apparaître. Si vous ne la voyez pas, vérifiez les notifications et le canal de rappels dans les réglages Android.'
       );
-    } catch (err: any) {
-      addLog('error', 'Erreur scénario Maman', err?.message || String(err));
-    }
-  };
-
-  const handleScheduleNearYearlyTest = async () => {
-    try {
-      const now = new Date();
-      const targetDate = new Date(now.getTime() + 2 * 60 * 1000);
-      const targetMonthHuman = targetDate.getMonth() + 1;
-      const targetDay = targetDate.getDate();
-      const targetHour = targetDate.getHours();
-      const targetMinute = targetDate.getMinutes();
-
-      const id = await scheduleYearlyReminder(
-        'Test Proche (Annuel)',
-        targetMonthHuman,
-        targetDay,
-        'same_day',
-        targetHour,
-        targetMinute,
-        'bestEffort'
-      );
-
-      addLog(
-        'scheduled',
-        'Déclencheur annuel proche créé',
-        `Prévu pour aujourd'hui à ${targetHour}h${String(targetMinute).padStart(2, '0')} (ID: ${id}).`
-      );
-      await refreshState();
+    } catch (error) {
       Alert.alert(
-        'Déclencheur annuel proche créé',
-        `Programmé pour aujourd'hui à ${targetHour}h${String(targetMinute).padStart(2, '0')} (dans ~2 minutes).\n\nLaissez le téléphone se verrouiller pour observer l'arrivée de la récurrence annuelle.`
+        'Envoi impossible',
+        error instanceof Error ? error.message : 'La notification n’a pas pu être envoyée.'
       );
-    } catch (err: any) {
-      addLog('error', 'Erreur trigger annuel proche', err?.message || String(err));
-    }
-  };
-
-  const handleCancelOne = async (id: string) => {
-    try {
-      await cancelNotification(id);
-      addLog('cancelled', 'Notification annulée', `Rappel ${id} supprimé.`);
-      await refreshState();
-    } catch (err: any) {
-      addLog('error', 'Erreur annulation', err?.message || String(err));
-    }
-  };
-
-  const handleCancelAll = async () => {
-    try {
-      const testNotifications = await getScheduledNotificationsList(true);
-      await Promise.all(testNotifications.map(({ id }) => cancelNotification(id)));
-      addLog('cancelled', 'Notifications de test annulées', 'Les rappels d’anniversaire sont conservés.');
-      await refreshState();
-    } catch (err: any) {
-      addLog('error', 'Erreur annulation globale', err?.message || String(err));
+    } finally {
+      setSendingNotificationCheck(false);
     }
   };
 
@@ -476,56 +413,38 @@ function MainApp() {
                       onRetry={handlePullRefresh}
                       onSave={handleSaveSettings}
                     />
-                    {__DEV__ && (
-                      <TouchableOpacity
-                        style={styles.diagnosticsLink}
-                        onPress={() => setActiveTab('testbench')}
-                        accessibilityRole="button"
-                      >
-                        <Text style={styles.diagnosticsTitle}>Diagnostics des notifications</Text>
-                        <Text style={styles.diagnosticsArrow}>›</Text>
-                      </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                      style={styles.diagnosticsLink}
+                      onPress={() => setActiveTab('diagnostics')}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.diagnosticsTitle}>Diagnostics des notifications</Text>
+                      <Text style={styles.diagnosticsArrow}>›</Text>
+                    </TouchableOpacity>
                   </>
                 )}
 
-                {activeTab === 'testbench' && (
+                {activeTab === 'diagnostics' && (
                   <>
                     <View style={styles.pageHeading}>
                       <TouchableOpacity style={styles.backToSettings} onPress={() => setActiveTab('settings')}>
                         <Text style={styles.backToSettingsText}>‹  Paramètres</Text>
                       </TouchableOpacity>
-                      <Text style={styles.pageTitle}>Outils de notification</Text>
-                      <Text style={styles.pageSubtitle}>Vérifiez les alertes sur cet appareil.</Text>
+                      <Text accessibilityRole="header" style={styles.pageTitle}>Diagnostics des notifications</Text>
+                      <Text style={styles.pageSubtitle}>Vérifiez les autorisations et le fonctionnement des rappels sur cet appareil.</Text>
                     </View>
-                    <PermissionCard
+                    <NotificationDiagnosticsSection
                       permission={permission}
-                      onRequestPermission={handleRequestPermission}
-                      onSendImmediateTest={handleImmediateTest}
-                    />
-
-                    <ValidationGuide />
-
-                    <QuickTestSection
-                      onScheduleShortTerm={handleScheduleShortTerm}
-                      onScheduleMamanScenario={handleScheduleMamanScenario}
-                      onScheduleNearYearlyTest={handleScheduleNearYearlyTest}
-                    />
-
-                    <ScheduledListSection
-                      notifications={scheduledList}
+                      reminderStatuses={reminderStatuses}
+                      birthdayCount={birthdays.length}
+                      syncFailed={settingsStatus}
+                      sendingCheck={sendingNotificationCheck}
                       onRefresh={handlePullRefresh}
-                      onCancelOne={handleCancelOne}
-                      onCancelAll={handleCancelAll}
+                      onRequestPermission={handleRequestPermission}
+                      onRequestExactAlarm={handleRequestExactAlarm}
+                      onSendCheck={handleSendNotificationCheck}
                     />
                   </>
-                )}
-
-                {activeTab === 'testbench' && (
-                  <EventLogSection
-                    logs={logs}
-                    onClearLogs={() => setLogs([])}
-                  />
                 )}
               </ScrollView>
 
@@ -543,7 +462,7 @@ function MainApp() {
             </View>
             <View accessibilityRole="tablist" style={styles.bottomNav}>
               {TABS.map(({ key, label, Icon }) => {
-                const selected = activeTab === key || (key === 'settings' && activeTab === 'testbench');
+                const selected = activeTab === key || (key === 'settings' && activeTab === 'diagnostics');
                 return (
                   <TouchableOpacity
                     key={key}

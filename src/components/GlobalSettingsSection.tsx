@@ -90,15 +90,20 @@ export function GlobalSettingsSection({
             ? syncFailed ? 'L’état des autorisations est indisponible.' : 'Vérification des autorisations…'
             : permission.channelBlocked ? 'Le canal des rappels est désactivé dans les réglages Android.'
             : !permission.granted ? 'Les notifications sont bloquées sur cet appareil.'
+            : permission.isExpoGo ? 'La précision des rappels n’est pas disponible sur cet appareil.'
             : permission.exactAlarms === false ? 'Les rappels peuvent arriver après l’heure choisie.'
             : 'Les notifications sont autorisées.'}
         </Text>
         {permission && !permission.granted && (
           <TouchableOpacity style={styles.secondaryButton} onPress={onRequestPermission} accessibilityRole="button">
-            <Text style={styles.secondaryText}>{permission.canAskAgain ? 'Autoriser les notifications' : 'Ouvrir les réglages'}</Text>
+            <Text style={styles.secondaryText}>
+              {permission.canAskAgain && !permission.channelBlocked
+                ? 'Autoriser les notifications'
+                : 'Ouvrir les réglages des notifications'}
+            </Text>
           </TouchableOpacity>
         )}
-        {permission?.granted && permission.exactAlarms === false && (
+        {permission?.granted && !permission.isExpoGo && permission.exactAlarms === false && (
           <TouchableOpacity style={styles.secondaryButton} onPress={onRequestExactAlarm} accessibilityRole="button">
             <Text style={styles.secondaryText}>Autoriser les alarmes exactes</Text>
           </TouchableOpacity>
