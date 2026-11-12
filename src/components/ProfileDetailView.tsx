@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
-import { ArrowLeft, CalendarDays, ChevronDown, Pencil, Trash2 } from 'lucide-react-native';
+import { Alert, ScrollView, Share, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ArrowLeft, CalendarDays, ChevronDown, Pencil, Share2, Trash2 } from 'lucide-react-native';
 import type { BirthdayProfile, BirthdayReminderConfig, GlobalReminderSettings, ReminderMode } from '../types';
 import type { ReminderStatus } from '../services/reminderScheduler';
 import { THEME } from '../constants/theme';
@@ -71,6 +71,18 @@ export function ProfileDetailView({ birthday, defaults, status, saving, onSave, 
     });
   };
 
+  const shareBirthday = async () => {
+    const date = `${birthday.birthDay} ${MONTH_NAMES_FR[birthday.birthMonth - 1].toLowerCase()}`;
+    try {
+      await Share.share({
+        title: `Anniversaire de ${birthday.name}`,
+        message: `🎂 L’anniversaire de ${birthday.name} est le ${date} !`,
+      });
+    } catch {
+      Alert.alert('Partage impossible', 'Une erreur est survenue lors du partage de cet anniversaire.');
+    }
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -81,6 +93,9 @@ export function ProfileDetailView({ birthday, defaults, status, saving, onSave, 
           <View style={styles.toolbarActions}>
             <TouchableOpacity style={styles.iconButton} disabled={saving} onPress={onEdit} accessibilityRole="button" accessibilityLabel="Modifier la fiche">
               <Pencil size={19} color={THEME.colors.textPrimary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton} onPress={shareBirthday} accessibilityRole="button" accessibilityLabel={`Partager l’anniversaire de ${birthday.name}`}>
+              <Share2 size={19} color={THEME.colors.textPrimary} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconButton}

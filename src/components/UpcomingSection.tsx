@@ -24,9 +24,13 @@ export const UpcomingSection: React.FC<UpcomingSectionProps> = ({
 }) => {
   const sorted = getSortedUpcomingBirthdays(birthdays);
   const featured = sorted[0];
+  const featuredGroup = featured
+    ? sorted.filter(birthday => birthday.next.nextDate.getTime() === featured.next.nextDate.getTime())
+    : [];
+  const featuredIds = new Set(featuredGroup.map(birthday => birthday.id));
   const upcomingGroups = new Map<string, typeof sorted>();
 
-  for (const birthday of sorted.slice(1)) {
+  for (const birthday of sorted.filter(item => !featuredIds.has(item.id))) {
     const key = `${birthday.next.nextDate.getFullYear()}-${birthday.next.nextDate.getMonth()}`;
     const group = upcomingGroups.get(key) ?? [];
     group.push(birthday);
@@ -38,6 +42,51 @@ export const UpcomingSection: React.FC<UpcomingSectionProps> = ({
     if (days === 1) return 'Demain';
     return `Dans ${days} jours`;
   };
+
+  const featuredCardContent = featured && (
+    <>
+      <View style={styles.featuredContent}>
+        <View style={styles.eyebrow}>
+          <Text style={styles.eyebrowText}>{getDaysLabel(featured.next.daysRemaining, featured.next.isToday)}</Text>
+        </View>
+        {featuredGroup.length === 1 ? (
+          <Text style={styles.featuredName} numberOfLines={2}>{featured.name}</Text>
+        ) : (
+          <>
+            <Text style={styles.sharedBirthdayTitle}>
+              {featuredGroup.length} anniversaires à fêter
+            </Text>
+            <View style={styles.sharedBirthdayNames}>
+              {featuredGroup.map(birthday => (
+                <TouchableOpacity
+                  key={birthday.id}
+                  style={styles.sharedBirthdayName}
+                  onPress={() => onOpenProfile(birthday)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Ouvrir la fiche de ${birthday.name}`}
+                >
+                  <Text style={styles.sharedBirthdayNameText} numberOfLines={1}>{birthday.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
+        <Text style={styles.featuredDate}>
+          {featured.next.nextDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+        </Text>
+        {featuredGroup.length === 1 && featured.nextAge !== null && (
+          <Text style={styles.featuredAge}>Fête ses {featured.nextAge} ans</Text>
+        )}
+      </View>
+      <Image
+        source={require('../../assets/birthday-save-brand/illustrations/birthday-cake.png')}
+        style={styles.cakeArt}
+        resizeMode="contain"
+        accessible={false}
+      />
+    </>
+  );
 
   return (
     <View style={styles.container}>
@@ -60,31 +109,18 @@ export const UpcomingSection: React.FC<UpcomingSectionProps> = ({
 
       <Text accessibilityRole="header" style={styles.pageTitle}>À venir</Text>
 
-      {featured ? (
+      {featured && featuredGroup.length === 1 ? (
         <TouchableOpacity
           style={styles.featuredCard}
           onPress={() => onOpenProfile(featured)}
           activeOpacity={0.9}
         >
-          <View style={styles.featuredContent}>
-            <View style={styles.eyebrow}>
-              <Text style={styles.eyebrowText}>{getDaysLabel(featured.next.daysRemaining, featured.next.isToday)}</Text>
-            </View>
-            <Text style={styles.featuredName} numberOfLines={2}>{featured.name}</Text>
-            <Text style={styles.featuredDate}>
-              {featured.next.nextDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
-            </Text>
-            {featured.nextAge !== null && (
-              <Text style={styles.featuredAge}>Fête ses {featured.nextAge} ans</Text>
-            )}
-          </View>
-          <Image
-            source={require('../../assets/birthday-save-brand/illustrations/birthday-cake.png')}
-            style={styles.cakeArt}
-            resizeMode="contain"
-            accessible={false}
-          />
+          {featuredCardContent}
         </TouchableOpacity>
+      ) : featured ? (
+        <View style={[styles.featuredCard, styles.sharedFeaturedCard]}>
+          {featuredCardContent}
+        </View>
       ) : (
         <View style={styles.emptyCard}>
           <View style={styles.emptyIcon}>
@@ -206,6 +242,35 @@ const styles = StyleSheet.create({
     lineHeight: 33,
     fontWeight: '800',
     maxWidth: 165,
+  },
+  sharedFeaturedCard: {
+    alignItems: 'flex-start',
+  },
+  sharedBirthdayTitle: {
+    color: THEME.colors.textPrimary,
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '800',
+    maxWidth: 170,
+  },
+  sharedBirthdayNames: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 9,
+    maxWidth: 180,
+  },
+  sharedBirthdayName: {
+    maxWidth: '100%',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255, 255, 255, 0.62)',
+  },
+  sharedBirthdayNameText: {
+    color: THEME.colors.primaryDark,
+    fontSize: 12,
+    fontWeight: '700',
   },
   featuredDate: {
     color: THEME.colors.textPrimary,
