@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Image, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { BirthdayProfile } from '../types';
 import { THEME } from '../constants/theme';
 import {
@@ -68,7 +68,9 @@ export const BirthdayCard: React.FC<BirthdayCardProps> = ({ birthday, onEdit, on
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{birthday.name.charAt(0).toUpperCase()}</Text>
+          {birthday.profileImageUri
+            ? <Image source={{ uri: birthday.profileImageUri }} style={styles.avatarImage} />
+            : <Text style={styles.avatarText}>{birthday.name.charAt(0).toUpperCase()}</Text>}
         </View>
 
         <View style={styles.nameContainer}>
@@ -161,6 +163,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     color: THEME.colors.primary,
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 18,
   },
   nameContainer: {
     flex: 1,

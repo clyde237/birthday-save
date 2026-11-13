@@ -1,5 +1,6 @@
 import { validateBirthdayInput } from './src/utils/birthdayValidation';
 import { getNextBirthdayDate, calculateNextAge } from './src/utils/dateUtils';
+import { DEFAULT_PROFILE_THEME_ID, getProfileTheme, isProfileThemeId } from './src/constants/profileThemes';
 
 function runLot2Tests() {
   console.log('--- Test Lot 2 : Validation des entrées ---');
@@ -33,6 +34,16 @@ function runLot2Tests() {
   const err6 = validateBirthdayInput({ name: 'Maman', birthDay: 2, birthMonth: 2 });
   if (err6.length !== 0) throw new Error('Fiche valide sans année rejetée à tort');
   console.log('✅ Fiche valide sans année acceptée');
+
+  const validTheme = validateBirthdayInput({
+    name: 'Camille', birthDay: 10, birthMonth: 10, colorTheme: 'lavande',
+  });
+  if (validTheme.length !== 0) throw new Error('Une palette valide doit être acceptée');
+  if (isProfileThemeId('neon')) throw new Error('Une palette inconnue doit être rejetée');
+  if (getProfileTheme(undefined).id !== DEFAULT_PROFILE_THEME_ID) {
+    throw new Error('Les anciennes fiches doivent utiliser la palette par défaut');
+  }
+  console.log('✅ Validation et palette par défaut vérifiées');
 
   const reference = new Date(2026, 10, 12, 12);
   const invalidCases = [

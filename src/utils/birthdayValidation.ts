@@ -1,4 +1,6 @@
 import type { BirthdayReminderConfig } from '../types';
+import { isRelation, type Relation } from '../constants/relations';
+import { isProfileThemeId, type ProfileThemeId } from '../constants/profileThemes';
 import { getDaysInMonth, isLeapYear } from './dateUtils';
 import { isValidReminderTime } from './reminderRules';
 
@@ -8,10 +10,13 @@ export interface CreateBirthdayInput {
   birthMonth: number;
   birthYear?: number;
   notes?: string;
+  relation?: Relation;
+  profileImageUri?: string | null;
+  colorTheme?: ProfileThemeId;
   reminder?: Partial<BirthdayReminderConfig>;
 }
 export interface ValidationError {
-  field: 'name' | 'birthDay' | 'birthMonth' | 'birthYear' | 'reminder';
+  field: 'name' | 'birthDay' | 'birthMonth' | 'birthYear' | 'relation' | 'colorTheme' | 'reminder';
   message: string;
 }
 
@@ -46,6 +51,14 @@ export function validateBirthdayInput(input: CreateBirthdayInput, now = new Date
         message: `${input.birthYear} n’était pas une année bissextile (le 29 février n’existait pas).`,
       });
     }
+  }
+
+  if (input.relation !== undefined && !isRelation(input.relation)) {
+    errors.push({ field: 'relation', message: 'Relation invalide.' });
+  }
+
+  if (input.colorTheme !== undefined && !isProfileThemeId(input.colorTheme)) {
+    errors.push({ field: 'colorTheme', message: 'Palette de couleurs invalide.' });
   }
 
   const reminder = input.reminder;

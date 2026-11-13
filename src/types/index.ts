@@ -1,4 +1,6 @@
 import * as Notifications from 'expo-notifications';
+import type { Relation } from '../constants/relations';
+import type { ProfileThemeId } from '../constants/profileThemes';
 
 export type ReminderMode = 'default' | 'custom' | 'disabled';
 export type ReminderType = 'same_day' | 'day_before';
@@ -30,6 +32,9 @@ export interface BirthdayProfile {
   birthMonth: number; // 1 - 12
   birthYear?: number;
   notes?: string;
+  relation?: Relation;
+  profileImageUri?: string;
+  colorTheme?: ProfileThemeId;
   reminder: BirthdayReminderConfig;
 }
 

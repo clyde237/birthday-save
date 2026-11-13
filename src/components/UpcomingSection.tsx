@@ -156,6 +156,9 @@ export const UpcomingSection: React.FC<UpcomingSectionProps> = ({
                     <Text style={styles.dateDay}>{next.getDate()}</Text>
                     <Text style={styles.dateMonth}>{MONTHS_SHORT[next.getMonth()]}</Text>
                   </View>
+                  {birthday.profileImageUri && (
+                    <Image source={{ uri: birthday.profileImageUri }} style={styles.profileThumbnail} />
+                  )}
                   <View style={styles.birthdayInfo}>
                     <Text style={styles.birthdayName} numberOfLines={1}>{birthday.name}</Text>
                     <Text style={styles.birthdayMeta}>
@@ -333,6 +336,12 @@ const styles = StyleSheet.create({
   },
   dateTilePeach: {
     backgroundColor: THEME.colors.peach,
+  },
+  profileThumbnail: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    marginRight: 10,
   },
   dateDay: {
     color: THEME.colors.textPrimary,

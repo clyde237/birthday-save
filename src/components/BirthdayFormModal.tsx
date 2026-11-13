@@ -3,6 +3,8 @@ import {
   Modal,
   View,
   Text,
+  Image,
+  Alert,
   TextInput,
   StyleSheet,
   TouchableOpacity,
@@ -11,7 +13,11 @@ import {
   Platform,
   Switch,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Camera, Check, ChevronDown, ImagePlus, X } from 'lucide-react-native';
 import type { BirthdayProfile, GlobalReminderSettings, ReminderMode } from '../types';
+import { RELATIONS, RELATION_LABELS, type Relation } from '../constants/relations';
+import { DEFAULT_PROFILE_THEME_ID, PROFILE_THEMES, type ProfileThemeId } from '../constants/profileThemes';
 import { ReminderTimeInput } from './ReminderTimeInput';
 import { formatReminderTime, getEffectiveReminderSettings, getReminderRules, parseReminderTime } from '../utils/reminderRules';
 import { THEME } from '../constants/theme';
@@ -46,9 +52,13 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [day, setDay] = useState('');
-  const [month, setMonth] = useState('1');
+  const [month, setMonth] = useState(String(new Date().getMonth() + 1));
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const [year, setYear] = useState('');
   const [notes, setNotes] = useState('');
+  const [relation, setRelation] = useState<Relation | undefined>();
+  const [profileImageUri, setProfileImageUri] = useState<string | undefined>();
+  const [colorTheme, setColorTheme] = useState<ProfileThemeId>(DEFAULT_PROFILE_THEME_ID);
   const [reminderMode, setReminderMode] = useState<ReminderMode>('default');
 
   // Réglages personnalisés
@@ -64,8 +74,12 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
       setName(editingBirthday.name);
       setDay(String(editingBirthday.birthDay));
       setMonth(String(editingBirthday.birthMonth));
+      setMonthPickerOpen(false);
       setYear(editingBirthday.birthYear ? String(editingBirthday.birthYear) : '');
       setNotes(editingBirthday.notes || '');
+      setRelation(editingBirthday.relation);
+      setProfileImageUri(editingBirthday.profileImageUri);
+      setColorTheme(editingBirthday.colorTheme ?? DEFAULT_PROFILE_THEME_ID);
       setReminderMode(editingBirthday.reminder.mode);
       setCustomDayBeforeEnabled(editingBirthday.reminder.customDayBeforeEnabled);
       setCustomDayBeforeHour(formatReminderTime(editingBirthday.reminder.customDayBeforeHour, editingBirthday.reminder.customDayBeforeMinute));
@@ -74,9 +88,13 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
     } else {
       setName('');
       setDay('');
-      setMonth('1');
+      setMonth(String(new Date().getMonth() + 1));
+      setMonthPickerOpen(false);
       setYear('');
       setNotes('');
+      setRelation(undefined);
+      setProfileImageUri(undefined);
+      setColorTheme(DEFAULT_PROFILE_THEME_ID);
       setReminderMode('default');
       setCustomDayBeforeEnabled(true);
       setCustomDayBeforeHour('19:00');
@@ -102,7 +120,7 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
     customSameDayMinute: sameDay?.minute ?? editingBirthday?.reminder.customSameDayMinute ?? 0,
   };
   const currentInput: CreateBirthdayInput = {
-    name, birthDay: numDay, birthMonth: numMonth, birthYear: numYear, notes, reminder,
+    name, birthDay: numDay, birthMonth: numMonth, birthYear: numYear, notes, relation, profileImageUri, colorTheme, reminder,
   };
   const dateIsValid = validateBirthdayInput(currentInput).every(error => error.field === 'name');
   const preview = dateIsValid ? getNextBirthdayDate(numMonth, numDay) : null;
@@ -122,6 +140,25 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
     return errors.find((e) => e.field === field)?.message;
   };
 
+  const chooseProfileImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setProfileImageUri(result.assets[0].uri);
+      }
+    } catch (error) {
+      Alert.alert(
+        'Photo indisponible',
+        error instanceof Error ? error.message : 'La photo n’a pas pu être sélectionnée.'
+      );
+    }
+  };
+
   return (
     <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={() => { if (!saving) onClose(); }}>
       <KeyboardAvoidingView
@@ -139,6 +176,38 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
           </View>
 
           <ScrollView style={styles.formScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <Text style={styles.label}>Photo de profil (facultative)</Text>
+            <View style={styles.photoRow}>
+              {profileImageUri ? (
+                <Image source={{ uri: profileImageUri }} style={styles.profilePhoto} />
+              ) : (
+                <View style={[styles.profilePhoto, styles.photoPlaceholder]}>
+                  <Camera size={24} color={THEME.colors.primary} />
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.photoChooseButton}
+                onPress={() => void chooseProfileImage()}
+                disabled={saving}
+                accessibilityRole="button"
+                accessibilityLabel={profileImageUri ? 'Changer la photo de profil' : 'Importer une photo de profil'}
+              >
+                <ImagePlus size={18} color={THEME.colors.primary} />
+                <Text style={styles.photoChooseText}>{profileImageUri ? 'Changer la photo' : 'Importer une photo'}</Text>
+              </TouchableOpacity>
+              {profileImageUri && (
+                <TouchableOpacity
+                  style={styles.photoRemoveButton}
+                  onPress={() => setProfileImageUri(undefined)}
+                  disabled={saving}
+                  accessibilityRole="button"
+                  accessibilityLabel="Supprimer la photo de profil"
+                >
+                  <X size={18} color={THEME.colors.danger} />
+                </TouchableOpacity>
+              )}
+            </View>
+
             {/* Prénom / Surnom */}
             <Text style={styles.label}>Prénom ou surnom *</Text>
             <TextInput
@@ -171,29 +240,44 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
 
               <View style={styles.colMonth}>
                 <Text style={styles.label}>Mois *</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.monthScroll}>
-                  {MONTH_NAMES_FR.map((mName, idx) => {
-                    const mVal = String(idx + 1);
-                    const isSelected = month === mVal;
-                    return (
-                      <TouchableOpacity
-                        key={mVal}
-                        accessibilityRole="button"
-                        accessibilityLabel={mName}
-                        accessibilityState={{ selected: isSelected }}
-                        style={[styles.monthPill, isSelected ? styles.monthPillActive : null]}
-                        onPress={() => setMonth(mVal)}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={[styles.monthPillText, isSelected ? styles.monthPillTextActive : null]}>
-                          {mName.substring(0, 4)}.
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Mois de naissance"
+                  accessibilityState={{ expanded: monthPickerOpen }}
+                  style={[styles.monthSelect, getFieldError('birthMonth') ? styles.inputError : null]}
+                  onPress={() => setMonthPickerOpen(open => !open)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.monthSelectText}>{MONTH_NAMES_FR[numMonth - 1]}</Text>
+                  <ChevronDown size={19} color={THEME.colors.textSecondary} />
+                </TouchableOpacity>
               </View>
             </View>
+            {monthPickerOpen && (
+              <ScrollView style={styles.monthDropdown} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                {MONTH_NAMES_FR.map((monthName, index) => {
+                  const value = String(index + 1);
+                  const selected = month === value;
+                  return (
+                    <TouchableOpacity
+                      key={value}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      style={[styles.monthOption, selected ? styles.monthOptionSelected : null]}
+                      onPress={() => {
+                        setMonth(value);
+                        setMonthPickerOpen(false);
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.monthOptionText, selected ? styles.monthOptionTextSelected : null]}>
+                        {monthName}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
             {(getFieldError('birthDay') || getFieldError('birthMonth')) && (
               <Text style={styles.errorText}>
                 ⚠ {getFieldError('birthDay') || getFieldError('birthMonth')}
@@ -215,6 +299,58 @@ export const BirthdayFormModal: React.FC<BirthdayFormModalProps> = ({
             {getFieldError('birthYear') && (
               <Text style={styles.errorText}>⚠ {getFieldError('birthYear')}</Text>
             )}
+
+            <Text style={styles.label}>Relation (facultative)</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.relationScroll}>
+              {RELATIONS.map(value => {
+                const selected = relation === value;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    accessibilityRole="button"
+                    accessibilityLabel={RELATION_LABELS[value]}
+                    accessibilityState={{ selected }}
+                    style={[styles.monthPill, selected ? styles.monthPillActive : null]}
+                    onPress={() => setRelation(selected ? undefined : value)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.monthPillText, selected ? styles.monthPillTextActive : null]}>
+                      {RELATION_LABELS[value]}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            {!!getFieldError('relation') && <Text style={styles.errorText}>⚠ {getFieldError('relation')}</Text>}
+
+            <Text style={styles.label}>Couleur de la fiche</Text>
+            <View style={styles.themeOptions}>
+              {PROFILE_THEMES.map(theme => {
+                const selected = colorTheme === theme.id;
+                return (
+                  <TouchableOpacity
+                    key={theme.id}
+                    style={[
+                      styles.themeOption,
+                      { backgroundColor: theme.surface, borderColor: selected ? theme.primary : theme.border },
+                      selected && styles.themeOptionSelected,
+                    ]}
+                    onPress={() => setColorTheme(theme.id)}
+                    disabled={saving}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Thème ${theme.label}`}
+                    accessibilityState={{ selected }}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.themeSwatch, { backgroundColor: theme.primary }]}>
+                      {selected && <Check size={15} color="#FFFFFF" strokeWidth={3} />}
+                    </View>
+                    <Text style={[styles.themeOptionText, { color: theme.primaryDark }]}>{theme.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {!!getFieldError('colorTheme') && <Text style={styles.errorText}>⚠ {getFieldError('colorTheme')}</Text>}
 
             {/* SECTION RAPPELS (LOT 3) */}
             <View style={styles.reminderSection}>
@@ -374,6 +510,44 @@ const styles = StyleSheet.create({
   formScroll: {
     marginBottom: THEME.spacing.md,
   },
+  photoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 8,
+  },
+  profilePhoto: {
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+  },
+  photoPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: THEME.colors.surface,
+  },
+  photoChooseButton: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 13,
+    borderRadius: 14,
+    backgroundColor: THEME.colors.surface,
+  },
+  photoChooseText: {
+    color: THEME.colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  photoRemoveButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: THEME.colors.dangerBg,
+  },
   label: {
     fontSize: 13,
     fontWeight: '700',
@@ -412,9 +586,80 @@ const styles = StyleSheet.create({
   colMonth: {
     flex: 1,
   },
-  monthScroll: {
+  monthSelect: {
+    minHeight: 43,
+    paddingHorizontal: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderLight,
+    backgroundColor: THEME.colors.background,
+  },
+  monthSelectText: {
+    color: THEME.colors.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  monthDropdown: {
+    maxHeight: 210,
+    marginTop: 6,
+    marginLeft: 88,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    borderRadius: 14,
+    backgroundColor: THEME.colors.cardBackground,
+  },
+  monthOption: {
+    minHeight: 38,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  monthOptionSelected: {
+    backgroundColor: THEME.colors.surface,
+  },
+  monthOptionText: {
+    color: THEME.colors.textPrimary,
+    fontSize: 14,
+  },
+  monthOptionTextSelected: {
+    color: THEME.colors.primaryDark,
+    fontWeight: '700',
+  },
+  relationScroll: {
     flexDirection: 'row',
     marginTop: 2,
+  },
+  themeOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 3,
+  },
+  themeOption: {
+    minWidth: 98,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  themeOptionSelected: {
+    borderWidth: 2,
+  },
+  themeSwatch: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 11,
+  },
+  themeOptionText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   monthPill: {
     paddingHorizontal: 10,

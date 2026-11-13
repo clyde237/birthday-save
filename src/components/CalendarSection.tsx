@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Image, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { BirthdayProfile } from '../types';
 import { THEME } from '../constants/theme';
@@ -179,9 +179,9 @@ export const CalendarSection: React.FC<CalendarSectionProps> = ({
                   activeOpacity={0.7}
                 >
                   <View style={styles.profileAvatar}>
-                    <Text style={styles.profileAvatarText}>
-                      {profile.name.charAt(0).toUpperCase()}
-                    </Text>
+                    {profile.profileImageUri
+                      ? <Image source={{ uri: profile.profileImageUri }} style={styles.profileAvatarImage} />
+                      : <Text style={styles.profileAvatarText}>{profile.name.charAt(0).toUpperCase()}</Text>}
                   </View>
                   <View style={styles.profileInfo}>
                     <Text style={styles.profileName}>{profile.name}</Text>
@@ -324,6 +324,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: THEME.colors.primary,
+  },
+  profileAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 16,
   },
   profileInfo: {
     flex: 1,

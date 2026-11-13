@@ -1,5 +1,8 @@
 import { getDatabase } from './db';
 import { BirthdayProfile, BirthdayReminderConfig, ReminderMode } from '../types';
+import { isRelation } from '../constants/relations';
+import { DEFAULT_PROFILE_THEME_ID, isProfileThemeId } from '../constants/profileThemes';
+import { deleteProfileImage, persistProfileImage } from '../services/profileImageService';
 import { validateBirthdayInput, type CreateBirthdayInput } from '../utils/birthdayValidation';
 export { validateBirthdayInput, type CreateBirthdayInput, type ValidationError } from '../utils/birthdayValidation';
 
@@ -21,6 +24,9 @@ export async function getAllBirthdays(): Promise<BirthdayProfile[]> {
     birth_month: number;
     birth_year: number | null;
     notes: string | null;
+    relation?: string | null;
+    profile_image_uri?: string | null;
+    color_theme?: string | null;
     reminder_mode?: string | null;
     custom_day_before_enabled?: number | null;
     custom_day_before_hour?: number | null;
@@ -31,7 +37,7 @@ export async function getAllBirthdays(): Promise<BirthdayProfile[]> {
     notification_ids?: string | null;
   }>(`
     SELECT
-      id, name, birth_day, birth_month, birth_year, notes,
+      id, name, birth_day, birth_month, birth_year, notes, relation, profile_image_uri, color_theme,
       reminder_mode, custom_day_before_enabled, custom_day_before_hour, custom_day_before_minute,
       custom_same_day_enabled, custom_same_day_hour, custom_same_day_minute, notification_ids
     FROM birthdays
@@ -61,6 +67,9 @@ export async function getAllBirthdays(): Promise<BirthdayProfile[]> {
       birthMonth: r.birth_month,
       birthYear: r.birth_year ?? undefined,
       notes: r.notes ?? undefined,
+      relation: isRelation(r.relation) ? r.relation : undefined,
+      profileImageUri: r.profile_image_uri ?? undefined,
+      colorTheme: isProfileThemeId(r.color_theme) ? r.color_theme : DEFAULT_PROFILE_THEME_ID,
       reminder,
     };
   });
@@ -92,13 +101,18 @@ export async function createBirthday(input: CreateBirthdayInput): Promise<Birthd
     notificationIds: [],
   };
 
-  db.runSync(
+  const profileImageUri = input.profileImageUri
+    ? await persistProfileImage(input.profileImageUri, id)
+    : undefined;
+
+  try {
+    db.runSync(
     `INSERT INTO birthdays (
-      id, name, birth_day, birth_month, birth_year, notes,
+      id, name, birth_day, birth_month, birth_year, notes, relation, profile_image_uri, color_theme,
       reminder_mode, custom_day_before_enabled, custom_day_before_hour, custom_day_before_minute,
       custom_same_day_enabled, custom_same_day_hour, custom_same_day_minute, notification_ids,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.name.trim(),
@@ -106,6 +120,9 @@ export async function createBirthday(input: CreateBirthdayInput): Promise<Birthd
       input.birthMonth,
       input.birthYear ?? null,
       input.notes?.trim() ?? null,
+      input.relation ?? null,
+      profileImageUri ?? null,
+      input.colorTheme ?? DEFAULT_PROFILE_THEME_ID,
       reminder.mode,
       reminder.customDayBeforeEnabled ? 1 : 0,
       reminder.customDayBeforeHour,
@@ -118,6 +135,16 @@ export async function createBirthday(input: CreateBirthdayInput): Promise<Birthd
       now,
     ]
   );
+  } catch (error) {
+    if (profileImageUri) {
+      try {
+        await deleteProfileImage(profileImageUri);
+      } catch (cleanupError) {
+        console.warn('Nettoyage de la photo de profil après échec de création impossible :', cleanupError);
+      }
+    }
+    throw error;
+  }
 
   return {
     id,
@@ -126,6 +153,9 @@ export async function createBirthday(input: CreateBirthdayInput): Promise<Birthd
     birthMonth: input.birthMonth,
     birthYear: input.birthYear,
     notes: input.notes?.trim(),
+    relation: input.relation,
+    profileImageUri,
+    colorTheme: input.colorTheme ?? DEFAULT_PROFILE_THEME_ID,
     reminder,
   };
 }
@@ -138,6 +168,15 @@ export async function updateBirthday(id: string, input: CreateBirthdayInput): Pr
 
   const db = getDatabase();
   const now = Date.now();
+  const existing = db.getFirstSync<{ profile_image_uri: string | null }>(
+    `SELECT profile_image_uri FROM birthdays WHERE id = ?`,
+    [id]
+  );
+  if (!existing) throw new Error('Cette fiche est introuvable.');
+  const previousImageUri = existing.profile_image_uri ?? undefined;
+  const profileImageUri = input.profileImageUri
+    ? await persistProfileImage(input.profileImageUri, id)
+    : undefined;
 
   const reminderMode = input.reminder?.mode ?? 'default';
   const customDayBeforeEnabled = input.reminder?.customDayBeforeEnabled ?? true;
@@ -147,9 +186,11 @@ export async function updateBirthday(id: string, input: CreateBirthdayInput): Pr
   const customSameDayHour = input.reminder?.customSameDayHour ?? 6;
   const customSameDayMinute = input.reminder?.customSameDayMinute ?? 0;
 
-  const result = db.runSync(
+  let result: ReturnType<typeof db.runSync>;
+  try {
+    result = db.runSync(
     `UPDATE birthdays SET
-      name = ?, birth_day = ?, birth_month = ?, birth_year = ?, notes = ?,
+      name = ?, birth_day = ?, birth_month = ?, birth_year = ?, notes = ?, relation = ?, profile_image_uri = ?, color_theme = ?,
       reminder_mode = ?, custom_day_before_enabled = ?, custom_day_before_hour = ?, custom_day_before_minute = ?,
       custom_same_day_enabled = ?, custom_same_day_hour = ?, custom_same_day_minute = ?,
       updated_at = ?
@@ -160,6 +201,9 @@ export async function updateBirthday(id: string, input: CreateBirthdayInput): Pr
       input.birthMonth,
       input.birthYear ?? null,
       input.notes?.trim() ?? null,
+      input.relation ?? null,
+      profileImageUri ?? null,
+      input.colorTheme ?? DEFAULT_PROFILE_THEME_ID,
       reminderMode,
       customDayBeforeEnabled ? 1 : 0,
       customDayBeforeHour,
@@ -171,8 +215,25 @@ export async function updateBirthday(id: string, input: CreateBirthdayInput): Pr
       id,
     ]
   );
+  } catch (error) {
+    if (profileImageUri && profileImageUri !== previousImageUri) {
+      try {
+        await deleteProfileImage(profileImageUri);
+      } catch (cleanupError) {
+        console.warn('Nettoyage de la photo de profil après échec de modification impossible :', cleanupError);
+      }
+    }
+    throw error;
+  }
 
   if (result.changes === 0) throw new Error('Cette fiche est introuvable.');
+  if (previousImageUri && previousImageUri !== profileImageUri) {
+    try {
+      await deleteProfileImage(previousImageUri);
+    } catch (error) {
+      console.warn('Suppression de l’ancienne photo de profil impossible :', error);
+    }
+  }
 
   return {
     id,
@@ -181,6 +242,9 @@ export async function updateBirthday(id: string, input: CreateBirthdayInput): Pr
     birthMonth: input.birthMonth,
     birthYear: input.birthYear,
     notes: input.notes?.trim(),
+    relation: input.relation,
+    profileImageUri,
+    colorTheme: input.colorTheme ?? DEFAULT_PROFILE_THEME_ID,
     reminder: {
       mode: reminderMode,
       customDayBeforeEnabled,
@@ -203,10 +267,15 @@ export async function updateNotificationIdsForBirthday(id: string, notificationI
 
 export async function deleteBirthday(id: string): Promise<string[]> {
   const db = getDatabase();
-  const row = db.getFirstSync<{ notification_ids: string }>(
-    `SELECT notification_ids FROM birthdays WHERE id = ?`,
+  const row = db.getFirstSync<{ notification_ids: string; profile_image_uri: string | null }>(
+    `SELECT notification_ids, profile_image_uri FROM birthdays WHERE id = ?`,
     [id]
   );
   db.runSync(`DELETE FROM birthdays WHERE id = ?`, [id]);
+  try {
+    await deleteProfileImage(row?.profile_image_uri ?? undefined);
+  } catch (error) {
+    console.warn('Suppression de la photo du profil impossible :', error);
+  }
   return parseNotificationIds(row?.notification_ids);
 }

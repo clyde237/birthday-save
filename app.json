@@ -22,7 +22,9 @@
       },
       "package": "com.birthdaysave.app",
       "predictiveBackGestureEnabled": false,
-      "permissions": ["android.permission.SCHEDULE_EXACT_ALARM"]
+      "permissions": [
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ]
     },
     "plugins": [
       [
@@ -34,6 +36,14 @@
       ],
       "expo-sqlite",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Birthday-save utilise vos photos pour illustrer les fiches de vos proches.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/birthday-save-brand/expo/splash-screen-1024.png",
@@ -41,10 +51,16 @@
           "imageWidth": 320,
           "resizeMode": "contain"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "397a83db-784f-4240-a144-cd2957aa446a"
+      }
     }
   }
 }

@@ -39,6 +39,9 @@ function initDatabase(db: SQLite.SQLiteDatabase): void {
       birth_month INTEGER NOT NULL,
       birth_year INTEGER,
       notes TEXT,
+      relation TEXT,
+      profile_image_uri TEXT,
+      color_theme TEXT,
       reminder_mode TEXT NOT NULL DEFAULT 'default',
       custom_day_before_enabled INTEGER NOT NULL DEFAULT 1,
       custom_day_before_hour INTEGER NOT NULL DEFAULT 19,
@@ -56,6 +59,15 @@ function initDatabase(db: SQLite.SQLiteDatabase): void {
   const columns = db.getAllSync<{ name: string }>(`PRAGMA table_info(birthdays);`);
   const colNames = columns.map((c) => c.name);
 
+  if (!colNames.includes('relation')) {
+    db.execSync(`ALTER TABLE birthdays ADD COLUMN relation TEXT;`);
+  }
+  if (!colNames.includes('profile_image_uri')) {
+    db.execSync(`ALTER TABLE birthdays ADD COLUMN profile_image_uri TEXT;`);
+  }
+  if (!colNames.includes('color_theme')) {
+    db.execSync(`ALTER TABLE birthdays ADD COLUMN color_theme TEXT;`);
+  }
   if (!colNames.includes('reminder_mode')) {
     db.execSync(`ALTER TABLE birthdays ADD COLUMN reminder_mode TEXT NOT NULL DEFAULT 'default';`);
   }
